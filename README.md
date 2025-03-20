@@ -135,10 +135,6 @@ yomibot/
 - BeautifulSoup4 - HTML parsing
 - google-generativeai - Google Gemini API client
 
-## License
-
-[MIT License](LICENSE)
-
 ## Author
 
 Created by CyanideByte for OSRS Clan Mesa.
