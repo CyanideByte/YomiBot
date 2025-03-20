@@ -2,8 +2,6 @@
 
 A versatile Discord bot for OSRS Clan Mesa with music playback, Old School RuneScape information, and competition tracking capabilities.
 
-[![GitHub](https://img.shields.io/github/license/CyanideByte/YomiBot)](https://github.com/CyanideByte/YomiBot/blob/main/LICENSE)
-
 ## Features
 
 ### 🎵 Music Player
