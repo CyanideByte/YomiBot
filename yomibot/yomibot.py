@@ -36,10 +36,10 @@ class CaseInsensitiveBot(commands.Bot):
         channel_name = message.channel.name.lower()
         invoked = (ctx.invoked_with or "").lower()
         
-        if invoked not in ("sotw", "botw", "askyomi", "about") and not any(keyword in channel_name for keyword in self.allowed_channel_keywords):
+        if invoked not in ("sotw", "botw", "askyomi", "ask", "yomi",  "about") and not any(keyword in channel_name for keyword in self.allowed_channel_keywords):
             return None
             
-        if invoked == "askyomi" and "yomi" not in channel_name:
+        if (invoked == "askyomi" or invoked == "ask" or invoked == "yomi") and "yomi" not in channel_name:
             return None
         
         if ctx.prefix is None:

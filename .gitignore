@@ -2,6 +2,7 @@
 spotify_credentials.txt
 youtube_cookies.txt
 bot_token.txt
+test.py
 .cache
 .env
 queues/*

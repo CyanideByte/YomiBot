@@ -14,14 +14,27 @@ if config.gemini_api_key:
 SYSTEM_PROMPT = """
 You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS using information provided from the OSRS Wiki.
 
-Guidelines:
-1. Use only the provided wiki information to answer questions
-2. If the information doesn't contain the answer, admit you don't know
-3. Format your responses using Discord-safe formatting (no LaTeX formulas)
-4. Use ** for bold, * for italic, ` for inline code, and ``` for code blocks
-5. Keep your answers concise and relevant to OSRS (Your answer must be less than 2000 characters long)
+Formatting Rules:
+1. Use * for bullet points (they format correctly in Discord)
+2. Bold ONLY the following with **text**:
+   * Section headers
+   * Item names (e.g., **Abyssal whip**)
+   * Boss/monster names (e.g., **Zulrah**)
+   * Location names (e.g., **Wilderness**)
+3. Do NOT bold:
+   * Drop rates or percentages
+   * Prices or numerical values
+   * Statistics or combat levels
+4. Break information into clear sections
+5. Keep answers concise (under 2000 characters)
 
-Remember that you're helping players understand game mechanics, items, quests, and other aspects of Old School RuneScape.
+Content Rules:
+1. Use only the provided wiki information
+2. Prioritize key information the player needs
+3. Format information clearly and consistently
+4. State clearly if information isn't available
+
+Remember: Create clear, easy-to-read responses that focus on the key information.
 """
 
 # Helper functions for OSRS Wiki integration
@@ -31,11 +44,33 @@ def clean_text(text):
 
 def render_table_to_text(table):
     """Render an HTML table element into a text-formatted table"""
+    def process_img(img):
+        # Check if parent is <a> with title
+        parent = img.parent
+        if parent.name == 'a' and parent.get('title'):
+            return f"IMG: [{parent['title']}]"
+        # Check for href
+        if parent.name == 'a' and parent.get('href'):
+            href = parent['href']
+            if href.startswith('/w/'):
+                href = href[3:]  # Remove '/w/' prefix
+            return f"IMG: [{href}]"
+        # Check for alt text
+        if img.get('alt'):
+            return f"IMG: [{img['alt']}]"
+        return "IMG: [no description]"
+
     rows = table.find_all('tr')
     lines = []
     for row in rows:
         cells = row.find_all(['th', 'td'])
-        cell_texts = [clean_text(cell.get_text()) for cell in cells]
+        cell_texts = []
+        for cell in cells:
+            # Process any img tags first
+            for img in cell.find_all('img'):
+                img_text = process_img(img)
+                img.replace_with(img_text)
+            cell_texts.append(clean_text(cell.get_text()))
         line = " | ".join(cell_texts)
         lines.append(line)
     return "\n".join(lines)
@@ -142,9 +177,11 @@ def fetch_osrs_wiki(page_name):
         # Update the page name and URL
         page_name = redirected_page_name
         url = redirect_url
-    
     response = requests.get(url, headers={"User-Agent": "OSRS Wiki Assistant/1.0"})
     if response.status_code != 200:
+        if response.status_code == 404:
+            return f"Page not found - This item/content may be unreleased or not exist in OSRS yet.", original_page_name, page_name
+        return f"Failed to download page: {url} (Status code: {response.status_code})", original_page_name, page_name
         return f"Failed to download page: {url} (Status code: {response.status_code})", original_page_name, page_name
     
     html_content = response.text
@@ -168,7 +205,6 @@ def fetch_osrs_wiki(page_name):
     content = soup.find(id="mw-content-text")
     if content:
         output += "\n===Description===\n"
-        rendered_tables = []
         elements = content.find_all(["p", "span", "td", "li", "div", "table"], recursive=True)
         skip_section = False
         in_changes = False
@@ -186,7 +222,7 @@ def fetch_osrs_wiki(page_name):
                     skip_section = False
                     in_changes = True
                     output += f"\n==={header_text}===\n"
-                elif header_text in ["Combat stats", "Used in recommended equipment", "Gallery", "Gallery (historical)", "History", "Trivia", "References", "Sound effects"]:
+                elif header_text in ["Combat stats", "Used in recommended equipment", "Gallery", "Gallery (historical)", "References", "Sound effects", "Transcript"]:
                     skip_section = True
                     in_changes = False
                     continue
@@ -208,15 +244,12 @@ def fetch_osrs_wiki(page_name):
             elif el.name == 'li' and not skip_section:
                 output += f"• {el.get_text().strip()}\n"
             elif el.name == 'table' and not skip_section:
+                # Render tables inline with the content
                 table_text = render_table_to_text(el)
-                #rendered_tables.append(table_text)
+                output += "\n" + table_text + "\n"
             elif in_changes and el.name == 'td':
                 if el.has_attr('data-sort-value'):
                     output += "\n" + el['data-sort-value'] + "\n"
-        if rendered_tables:
-            output += "\n=== Rendered Tables ===\n"
-            for idx, table in enumerate(rendered_tables, start=1):
-                output += f"\nTable {idx}:\n{table}\n"
     
     # Return the content, the original page name, and the potentially redirected page name
     return output, original_page_name, page_name
@@ -251,28 +284,135 @@ async def identify_wiki_pages(user_query):
     if not config.gemini_api_key:
         print("Gemini API key not set")
         return []
-        
-    model = genai.GenerativeModel(config.gemini_model)
-    prompt = f"""
-    You are an assistant that helps determine which Old School RuneScape (OSRS) wiki pages to fetch based on user queries.
-    Identify UP TO 5 most relevant OSRS wiki page to comprehensively answer this question. (but only as many as necessary and strictly relevant to the query)
-    Respond ONLY with the exact page names separated by commas. No additional text or explanation.
-    For example: "Abyssal_whip, Wilderness, Slayer"
     
-    User Query: {user_query}
-    """
-    
+    # First try with function calling
     try:
+        # Define the function schema
+        tools = [
+            {
+                "function_declarations": [
+                    {
+                        "name": "identify_wiki_pages",
+                        "description": "Identifies relevant OSRS wiki pages based on a user query",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "page_names": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "List of OSRS wiki page names to fetch. Use exact names with underscores (e.g., 'Dragon_scimitar'). Only include pages explicitly mentioned in the query. For boss pages, also include their Strategies page (e.g., if General_Graardor is included, also add General_Graardor/Strategies). For skill pages, also include their Training page (e.g., if Thieving is included, also add Thieving_training). Limit to maximum 2 pages unless query explicitly mentions more items."
+                                }
+                            },
+                            "required": ["page_names"]
+                        }
+                    }
+                ]
+            }
+        ]
+        
+        model = genai.GenerativeModel(config.gemini_model)
+        
+        # Use function calling to identify wiki pages
         response = await asyncio.to_thread(
+            lambda: model.generate_content(
+                user_query,
+                tools=tools
+            )
+        )
+        
+        # Check if the response has function calling results
+        if hasattr(response, 'candidates') and response.candidates:
+            candidate = response.candidates[0]
+            
+            if hasattr(candidate, 'content') and candidate.content:
+                content = candidate.content
+                
+                if hasattr(content, 'parts') and content.parts:
+                    for part in content.parts:
+                        if hasattr(part, 'function_call') and part.function_call:
+                            function_call = part.function_call
+                            
+                            if function_call.name == "identify_wiki_pages" and hasattr(function_call, 'args'):
+                                args = function_call.args
+                                
+                                if 'page_names' in args:
+                                    page_names = args['page_names']
+                                    # Filter out any empty strings
+                                    page_names = [name for name in page_names if name and name.strip()]
+                                    print(f"Identified wiki pages: {page_names}")
+                                    return page_names
+        
+        # If we get here, function calling didn't work as expected
+        print("Function calling didn't return expected structure, falling back to text approach")
+        
+        # Fall back to text-based approach
+        prompt = f"""
+        You are an assistant that helps determine which Old School RuneScape (OSRS) wiki pages to fetch based on user queries.
+
+        Important Rules:
+        1. ONLY include pages that are EXPLICITLY mentioned in the query
+        2. Do NOT guess or infer related pages unless absolutely certain
+        3. For items, use exact names with underscores (e.g., "Dragon_scimitar"). For boss pages, include their Strategies page (e.g., if "General_Graardor" is included, also add "General_Graardor/Strategies"). For skill pages, include their Training page (e.g., if "Thieving" is included, also add "Thieving_training")
+        4. For drop rates, include ONLY the specific item and monster mentioned
+        5. If unsure about a page name, do NOT include it
+        6. Limit to maximum 2 pages unless query explicitly mentions more items
+        
+        Respond ONLY with the exact page names separated by commas. No additional text.
+        Examples:
+        - Query: "what drops abyssal whip?" -> "Abyssal_whip,Abyssal_demon"
+        - Query: "what is a dragon scimitar" -> "Dragon_scimitar"
+        - Query: "best weapon" -> "" (too vague, no specific items mentioned)
+
+        User Query: {user_query}
+        """
+        
+        text_response = await asyncio.to_thread(
             lambda: model.generate_content(prompt).text
         )
+        
         # Clean up the response to get just the page names
-        page_names = [name.strip() for name in response.split(',')]
-        print(f"Identified wiki pages: {page_names}")  # Debug print
+        page_names = [name.strip() for name in text_response.split(',') if name.strip()]
+        print(f"Identified wiki pages (text fallback): {page_names}")
         return page_names
+        
     except Exception as e:
         print(f"Error identifying wiki pages: {e}")
-        return []
+        
+        # Fall back to text-based approach
+        try:
+            print("Falling back to text-based approach due to error")
+            model = genai.GenerativeModel(config.gemini_model)
+            prompt = f"""
+            You are an assistant that helps determine which Old School RuneScape (OSRS) wiki pages to fetch based on user queries.
+
+            Important Rules:
+            1. ONLY include pages that are EXPLICITLY mentioned in the query
+            2. Do NOT guess or infer related pages unless absolutely certain
+            3. For items, use exact names with underscores (e.g., "Dragon_scimitar"). For boss pages, include their Strategies page (e.g., if "General_Graardor" is included, also add "General_Graardor/Strategies"). For skill pages, include their Training page (e.g., if "Thieving" is included, also add "Thieving_training")
+            4. For drop rates, include ONLY the specific item and monster mentioned
+            5. If unsure about a page name, do NOT include it
+            6. Limit to maximum 2 pages unless query explicitly mentions more items
+            
+            Respond ONLY with the exact page names separated by commas. No additional text.
+            Examples:
+            - Query: "what drops abyssal whip?" -> "Abyssal_whip,Abyssal_demon"
+            - Query: "what is a dragon scimitar" -> "Dragon_scimitar"
+            - Query: "best weapon" -> "" (too vague, no specific items mentioned)
+
+            User Query: {user_query}
+            """
+            
+            text_response = await asyncio.to_thread(
+                lambda: model.generate_content(prompt).text
+            )
+            
+            # Clean up the response to get just the page names
+            page_names = [name.strip() for name in text_response.split(',') if name.strip()]
+            print(f"Identified wiki pages (text fallback): {page_names}")
+            return page_names
+        except Exception as fallback_error:
+            print(f"Error in fallback approach: {fallback_error}")
+            return []
 
 async def process_user_query(user_query: str) -> str:
     """Process a user query about OSRS using Gemini and the OSRS Wiki"""
@@ -280,11 +420,11 @@ async def process_user_query(user_query: str) -> str:
         return "Sorry, the OSRS Wiki assistant is not available because the Gemini API key is not set."
         
     try:
-        # Identify relevant wiki pages
+        # Identify relevant wiki pages using function calling
         page_names = await identify_wiki_pages(user_query)
         
         if not page_names:
-            return "I couldn't determine which wiki pages to search. Please try a more specific query about OSRS."
+            return "I couldn't determine which wiki pages to search. Please try rephrasing your query to be more specific about OSRS content."
         
         print(f"Fetching wiki pages: {', '.join(page_names)}")
         
@@ -305,7 +445,8 @@ async def process_user_query(user_query: str) -> str:
         if redirects:
             print(f"Followed redirects: {redirects}")
         
-        # Process the content with Gemini
+        # Use text-based approach for response formatting
+        # Function calling works for page identification but not for response formatting
         model = genai.GenerativeModel(config.gemini_model)
         
         prompt = f"""
@@ -316,8 +457,20 @@ async def process_user_query(user_query: str) -> str:
         OSRS Wiki Information:
         {wiki_content}
         
-        Based on the above information from the OSRS Wiki, please provide a helpful answer to the user's query.
-        Remember to cite your sources using the URL format: https://oldschool.runescape.wiki/w/[page_name]
+        Provide a response following these specific formatting rules:
+        1. Start with a **Section Header**
+        2. Use * for list items (not bullet points)
+        3. Bold ONLY:
+           * Item names (e.g., **Abyssal whip**)
+           * Monster/boss names (e.g., **Abyssal demon**)
+           * Location names (e.g., **Wilderness**)
+           * Section headers
+        4. Do NOT bold:
+           * Drop rates
+           * Prices
+           * Combat stats
+           * Other numerical values
+        5. Include sources at the end using the URL format: https://oldschool.runescape.wiki/w/[page_name]
         """
         
         response = await asyncio.to_thread(
@@ -328,27 +481,40 @@ async def process_user_query(user_query: str) -> str:
         if not any(f"https://oldschool.runescape.wiki/w/{page.replace(' ', '_')}" in response for page in updated_page_names):
             sources = "\n\nSources:"
             for page in updated_page_names:
-                # Wrap URL in angle brackets
-                sources += f"\n- <https://oldschool.runescape.wiki/w/{page.replace(' ', '_')}>"
+                # Clean the page name and add URL
+                clean_page = page.replace(' ', '_').strip('[]')
+                sources += f"\n- <https://oldschool.runescape.wiki/w/{clean_page}>"
             
             # Make sure the response with sources doesn't exceed Discord's limit
             if len(response) + len(sources) <= 1990:
                 response += sources
         else:
-            # If URLs are already in the response, wrap them in angle brackets
+            # Clean any URLs in the response to use angle brackets
             for page in updated_page_names:
-                url = f"https://oldschool.runescape.wiki/w/{page.replace(' ', '_')}"
-                modified_url = f"<https://oldschool.runescape.wiki/w/{page.replace(' ', '_')}>"
-                response = response.replace(url, modified_url)
-    
+                clean_page = page.replace(' ', '_').strip('[]')
+                base_url = f"https://oldschool.runescape.wiki/w/{clean_page}"
+                # Handle various URL patterns
+                patterns = [
+                    (f"[{base_url}]({base_url})", base_url),  # Markdown style
+                    (f"[<{base_url}>]", base_url),  # Bracketed angle brackets
+                    (f"(<{base_url}>)", base_url),  # Parenthesized angle brackets
+                    (f"[{base_url}]", base_url),  # Simple brackets
+                ]
+                # First remove any special formatting
+                for pattern, replacement in patterns:
+                    response = response.replace(pattern, replacement)
+                # Then add the single angle brackets if the URL is bare
+                response = response.replace(base_url, f"<{base_url}>")
+        
         return response
         
     except Exception as e:
+        print(f"Error processing query: {e}")
         return f"Error processing your query: {str(e)}"
 
 # Register OSRS commands
 def setup_osrs_commands(bot):
-    @bot.command(name='askyomi')
+    @bot.command(name='askyomi', aliases=['yomi', 'ask'])
     async def askyomi(ctx, *, user_query: str):
         # Let the user know we're processing their request
         await ctx.send("Processing your request, this may take a moment...")
@@ -356,10 +522,29 @@ def setup_osrs_commands(bot):
         response = await process_user_query(user_query)
         
         # Discord has a 2000 character limit per message
-        if len(response) > 1990:
-            # Split into chunks of ~1990 characters
-            chunks = [response[i:i + 1990] for i in range(0, len(response), 1990)]
+        max_length = 1900  # Reduced to give more safety margin
+        if len(response) > max_length:
+            # Split at the last period or newline before max_length
+            chunks = []
+            while response:
+                if len(response) <= max_length:
+                    chunks.append(response)
+                    break
+                
+                # Find the last period or newline before max_length
+                last_period = response.rfind('.', 0, max_length)
+                last_newline = response.rfind('\n', 0, max_length)
+                split_point = max(last_period, last_newline)
+                
+                if split_point == -1:  # No good split point found
+                    split_point = max_length
+                
+                chunks.append(response[:split_point + 1])
+                response = response[split_point + 1:].lstrip()
+            
+            # Send chunks
             for i, chunk in enumerate(chunks):
-                await ctx.send(f"{chunk}" + ("" if i == len(chunks) - 1 else " (continued...)"))
+                suffix = "\n*(continued...)*" if i < len(chunks) - 1 else ""
+                await ctx.send(chunk + suffix)
         else:
             await ctx.send(response)
