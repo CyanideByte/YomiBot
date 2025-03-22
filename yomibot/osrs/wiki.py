@@ -285,67 +285,9 @@ async def identify_wiki_pages(user_query):
         print("Gemini API key not set")
         return []
     
-    # First try with function calling
     try:
-        # Define the function schema
-        tools = [
-            {
-                "function_declarations": [
-                    {
-                        "name": "identify_wiki_pages",
-                        "description": "Identifies relevant OSRS wiki pages based on a user query",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "page_names": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "List of OSRS wiki page names to fetch. Use exact names with underscores (e.g., 'Dragon_scimitar'). Only include pages explicitly mentioned in the query. For boss pages, also include their Strategies page (e.g., if General_Graardor is included, also add General_Graardor/Strategies). For skill pages, also include their Training page (e.g., if Thieving is included, also add Thieving_training). Limit to maximum 2 pages unless query explicitly mentions more items."
-                                }
-                            },
-                            "required": ["page_names"]
-                        }
-                    }
-                ]
-            }
-        ]
-        
+        # Use text-based approach only
         model = genai.GenerativeModel(config.gemini_model)
-        
-        # Use function calling to identify wiki pages
-        response = await asyncio.to_thread(
-            lambda: model.generate_content(
-                user_query,
-                tools=tools
-            )
-        )
-        
-        # Check if the response has function calling results
-        if hasattr(response, 'candidates') and response.candidates:
-            candidate = response.candidates[0]
-            
-            if hasattr(candidate, 'content') and candidate.content:
-                content = candidate.content
-                
-                if hasattr(content, 'parts') and content.parts:
-                    for part in content.parts:
-                        if hasattr(part, 'function_call') and part.function_call:
-                            function_call = part.function_call
-                            
-                            if function_call.name == "identify_wiki_pages" and hasattr(function_call, 'args'):
-                                args = function_call.args
-                                
-                                if 'page_names' in args:
-                                    page_names = args['page_names']
-                                    # Filter out any empty strings
-                                    page_names = [name for name in page_names if name and name.strip()]
-                                    print(f"Identified wiki pages: {page_names}")
-                                    return page_names
-        
-        # If we get here, function calling didn't work as expected
-        print("Function calling didn't return expected structure, falling back to text approach")
-        
-        # Fall back to text-based approach
         prompt = f"""
         You are an assistant that helps determine which Old School RuneScape (OSRS) wiki pages to fetch based on user queries.
 
@@ -372,47 +314,12 @@ async def identify_wiki_pages(user_query):
         
         # Clean up the response to get just the page names
         page_names = [name.strip() for name in text_response.split(',') if name.strip()]
-        print(f"Identified wiki pages (text fallback): {page_names}")
+        print(f"Identified wiki pages: {page_names}")
         return page_names
         
     except Exception as e:
         print(f"Error identifying wiki pages: {e}")
-        
-        # Fall back to text-based approach
-        try:
-            print("Falling back to text-based approach due to error")
-            model = genai.GenerativeModel(config.gemini_model)
-            prompt = f"""
-            You are an assistant that helps determine which Old School RuneScape (OSRS) wiki pages to fetch based on user queries.
-
-            Important Rules:
-            1. ONLY include pages that are EXPLICITLY mentioned in the query
-            2. Do NOT guess or infer related pages unless absolutely certain
-            3. For items, use exact names with underscores (e.g., "Dragon_scimitar"). For boss pages, include their Strategies page (e.g., if "General_Graardor" is included, also add "General_Graardor/Strategies"). For skill pages, include their Training page (e.g., if "Thieving" is included, also add "Thieving_training")
-            4. For drop rates, include ONLY the specific item and monster mentioned
-            5. If unsure about a page name, do NOT include it
-            6. Limit to maximum 2 pages unless query explicitly mentions more items
-            
-            Respond ONLY with the exact page names separated by commas. No additional text.
-            Examples:
-            - Query: "what drops abyssal whip?" -> "Abyssal_whip,Abyssal_demon"
-            - Query: "what is a dragon scimitar" -> "Dragon_scimitar"
-            - Query: "best weapon" -> "" (too vague, no specific items mentioned)
-
-            User Query: {user_query}
-            """
-            
-            text_response = await asyncio.to_thread(
-                lambda: model.generate_content(prompt).text
-            )
-            
-            # Clean up the response to get just the page names
-            page_names = [name.strip() for name in text_response.split(',') if name.strip()]
-            print(f"Identified wiki pages (text fallback): {page_names}")
-            return page_names
-        except Exception as fallback_error:
-            print(f"Error in fallback approach: {fallback_error}")
-            return []
+        return []
 
 async def process_user_query(user_query: str) -> str:
     """Process a user query about OSRS using Gemini and the OSRS Wiki"""
