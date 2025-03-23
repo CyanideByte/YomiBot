@@ -5,7 +5,7 @@ SESSION_NAME="yomibot"
 
 # Path to your virtual environment and yomibot script
 VENV_PATH="$HOME/yomibot/venv"
-SCRIPT_PATH="$HOME/yomibot/yomibot.py"
+SCRIPT_PATH="$HOME/yomibot/src/yomibot.py"
 
 # Start a new screen session and run the commands inside it
 screen -dmS $SESSION_NAME bash -c "

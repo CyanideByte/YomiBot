@@ -5,6 +5,7 @@ bot_token.txt
 test.py
 .cache
 .env
+cache/*
 queues/*
 !queues/.gitkeep
 deploy/

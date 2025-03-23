@@ -19,7 +19,7 @@ class Config:
     def _load_bot_token(self):
         """Read bot token from bot_token.txt"""
         try:
-            with open('bot_token.txt', 'r') as file:
+            with open('../bot_token.txt', 'r') as file:
                 self.bot_token = file.read().strip()
         except FileNotFoundError:
             print("Warning: bot_token.txt not found")
@@ -28,7 +28,7 @@ class Config:
     def _load_spotify_credentials(self):
         """Read Spotify credentials from spotify_credentials.txt"""
         try:
-            with open('spotify_credentials.txt', 'r') as file:
+            with open('../spotify_credentials.txt', 'r') as file:
                 self.spotify_credentials = json.load(file)
         except FileNotFoundError:
             print("Warning: spotify_credentials.txt not found")

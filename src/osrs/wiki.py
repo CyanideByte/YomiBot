@@ -3,6 +3,9 @@ import requests
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 import os
+import os.path
+import json
+import time
 
 from config.config import config
 
@@ -163,10 +166,82 @@ def find_redirect_target(url):
         print(f"Error checking for redirect: {e}")
         return None
 
+def get_cache_path(page_name):
+    """Get the cache file path for a given page name"""
+    safe_name = page_name.replace('/', '_').replace('\\', '_')
+    # Use project root directory for cache folder
+    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    return os.path.join(root_dir, 'cache', f"{safe_name}.json")
+
+def load_cached_page(page_name):
+    """Load a page from cache if it exists and is valid"""
+    cache_path = get_cache_path(page_name)
+    if not os.path.exists(cache_path):
+        print(f"No cache file exists at {cache_path}")
+        return None
+
+    try:
+        with open(cache_path, 'r', encoding='utf-8') as f:
+            cache_data = json.load(f)
+
+        current_time = time.time()
+        cache_age = current_time - cache_data['timestamp']
+
+        # If cache is less than 1 hour old, mark it as fresh
+        if cache_age < 60 * 60:
+            print(f"Using fresh cache for {page_name} (less than 1 hour old)")
+            cache_data['fresh'] = True
+            return cache_data
+
+        # Check if cache has expired (24 hours)
+        if cache_age > 24 * 60 * 60:
+            print(f"Cache expired for {page_name} (older than 24 hours)")
+            return None
+
+        cache_data['fresh'] = False
+        return cache_data
+    except Exception as e:
+        print(f"Error loading cache for {page_name}: {e}")
+        return None
+
+def save_to_cache(page_name, data, headers):
+    """Save page data and headers to cache"""
+    cache_path = get_cache_path(page_name)
+    # Create cache directory if it doesn't exist
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    
+    cache_data = {
+        'content': data,
+        'timestamp': time.time(),
+        'etag': headers.get('ETag'),
+        'last_modified': headers.get('Last-Modified')
+    }
+
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cache_data, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving cache for {page_name}: {e}")
+
 def fetch_osrs_wiki(page_name):
     """Fetch content from OSRS wiki page, following redirects if necessary"""
     original_page_name = page_name
     url = f"https://oldschool.runescape.wiki/w/{page_name}"
+    headers = {"User-Agent": "OSRS Wiki Assistant/1.0"}
+
+    # Try to load from cache first
+    cache_data = load_cached_page(page_name)
+    if cache_data:
+        if cache_data.get('fresh'):
+            # Cache is less than an hour old, use it without checking server
+            print(f"Using fresh cache without server validation")
+            return cache_data['content'], original_page_name, page_name
+
+        # For older cache, add conditional headers if available
+        if cache_data.get('etag'):
+            headers['If-None-Match'] = cache_data['etag']
+        if cache_data.get('last_modified'):
+            headers['If-Modified-Since'] = cache_data['last_modified']
     
     # First check if the page redirects
     redirect_url = find_redirect_target(url)
@@ -177,14 +252,31 @@ def fetch_osrs_wiki(page_name):
         # Update the page name and URL
         page_name = redirected_page_name
         url = redirect_url
-    response = requests.get(url, headers={"User-Agent": "OSRS Wiki Assistant/1.0"})
-    if response.status_code != 200:
+    response = requests.get(url, headers=headers)
+    if response.status_code == 304 and cache_data:
+        # Not modified, use cached content
+        print(f"Server validated cache is still fresh (304 Not Modified)")
+        print(f"Cache validation headers: ETag={headers.get('If-None-Match')}, Last-Modified={headers.get('If-Modified-Since')}")
+        html_content = cache_data['content']
+    elif response.status_code == 200:
+        # Save new content to cache
+        html_content = response.text
+        if not cache_data:
+            print(f"No cache exists for {page_name}")
+        else:
+            if cache_data.get('etag') != response.headers.get('ETag'):
+                print(f"Cache invalidated - ETag changed")
+            elif cache_data.get('last_modified') != response.headers.get('Last-Modified'):
+                print(f"Cache invalidated - Last-Modified changed")
+            else:
+                print(f"Cache expired (older than 24 hours)")
+        print(f"Saving new content to cache with headers: ETag={response.headers.get('ETag')}, Last-Modified={response.headers.get('Last-Modified')}")
+        save_to_cache(page_name, html_content, response.headers)
+    else:
         if response.status_code == 404:
             return f"Page not found - This item/content may be unreleased or not exist in OSRS yet.", original_page_name, page_name
         return f"Failed to download page: {url} (Status code: {response.status_code})", original_page_name, page_name
-        return f"Failed to download page: {url} (Status code: {response.status_code})", original_page_name, page_name
-    
-    html_content = response.text
+
     info = extract_item_info(html_content)
     output = ""
     output += f"=== {info.get('name', 'Item')} Information ===\n\n"
@@ -250,7 +342,7 @@ def fetch_osrs_wiki(page_name):
             elif in_changes and el.name == 'td':
                 if el.has_attr('data-sort-value'):
                     output += "\n" + el['data-sort-value'] + "\n"
-    
+
     # Return the content, the original page name, and the potentially redirected page name
     return output, original_page_name, page_name
 
@@ -434,24 +526,17 @@ def setup_osrs_commands(bot):
             # Split at the last period or newline before max_length
             chunks = []
             while response:
-                if len(response) <= max_length:
-                    chunks.append(response)
-                    break
-                
-                # Find the last period or newline before max_length
-                last_period = response.rfind('.', 0, max_length)
-                last_newline = response.rfind('\n', 0, max_length)
-                split_point = max(last_period, last_newline)
-                
-                if split_point == -1:  # No good split point found
-                    split_point = max_length
-                
-                chunks.append(response[:split_point + 1])
-                response = response[split_point + 1:].lstrip()
+                split_index = max_length
+                for char in ['.', '\n']:
+                    last_split = response[:max_length].rfind(char)
+                    if last_split != -1:
+                        split_index = last_split + 1
+                        break
+                chunks.append(response[:split_index].strip())
+                response = response[split_index:].strip()
             
-            # Send chunks
-            for i, chunk in enumerate(chunks):
-                suffix = "\n*(continued...)*" if i < len(chunks) - 1 else ""
-                await ctx.send(chunk + suffix)
+            for i, chunk in enumerate(chunks, 1):
+                msg = f"{chunk}\n\n[Part {i}/{len(chunks)}]"
+                await ctx.send(msg)
         else:
             await ctx.send(response)
