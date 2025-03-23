@@ -1,7 +1,10 @@
 import asyncio
 import requests
 from bs4 import BeautifulSoup
+import aiohttp
 import google.generativeai as genai
+from PIL import Image
+import io
 import os
 import os.path
 import json
@@ -371,41 +374,88 @@ def fetch_osrs_wiki_pages(page_names):
     
     return combined_content, redirects
 
-async def identify_wiki_pages(user_query):
+async def fetch_image(image_url: str) -> Image.Image:
+    """Download and convert image from URL to PIL Image"""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(image_url) as response:
+            if response.status != 200:
+                raise Exception(f"Failed to download image: {response.status}")
+            image_data = await response.read()
+            return Image.open(io.BytesIO(image_data))
+
+async def identify_items_in_images(images: list[Image.Image]) -> list[str]:
+    """Use Gemini to identify OSRS items/NPCs/locations in images"""
+    if not images:
+        return []
+
+    try:
+        model = genai.GenerativeModel(config.gemini_model)
+        prompt = """Name the OSRS items, NPCs, or locations you see in these images. Use exact wiki page names with underscores.
+
+        Respond ONLY with comma-separated wiki page names, no explanations or other text.
+        Example response format: "Dragon_scimitar,Abyssal_whip,Lumbridge_Castle"
+        """
+        
+        content = [prompt] + images
+        generation = await asyncio.to_thread(
+            lambda: model.generate_content(content)
+        )
+        return [name.strip() for name in generation.text.split(',') if name.strip()]
+    except Exception as e:
+        print(f"Error identifying items in images: {e}")
+        return []
+
+async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
     """Use Gemini to identify relevant wiki pages for the query"""
     if not config.gemini_api_key:
         print("Gemini API key not set")
         return []
     
     try:
-        # Use text-based approach only
         model = genai.GenerativeModel(config.gemini_model)
+        
+        # Stage 1: Process images if present
+        identified_items = []
+        if image_urls:
+            # Download and convert images to PIL format
+            images = []
+            for url in image_urls:
+                try:
+                    image = await fetch_image(url)
+                    images.append(image)
+                except Exception as e:
+                    print(f"Error processing image {url}: {e}")
+                    continue
+
+            if images:
+                identified_items = await identify_items_in_images(images)
+                print(f"Items identified in images: {identified_items}")
+                if identified_items:
+                    # Add identified items to user query
+                    user_query = f"{user_query}\nItems in images: {', '.join(identified_items)}"
+
+        # Stage 2: Process query (now including identified items if any)
         prompt = f"""
         You are an assistant that helps determine which Old School RuneScape (OSRS) wiki pages to fetch based on user queries.
 
         Important Rules:
-        1. ONLY include pages that are EXPLICITLY mentioned in the query
+        1. ONLY include pages that are EXPLICITLY mentioned in the query or identified from images
         2. Do NOT guess or infer related pages unless absolutely certain
-        3. For items, use exact names with underscores (e.g., "Dragon_scimitar"). For boss pages, include their Strategies page (e.g., if "General_Graardor" is included, also add "General_Graardor/Strategies"). For skill pages, include their Training page (e.g., if "Thieving" is included, also add "Thieving_training")
-        4. For drop rates, include ONLY the specific item and monster mentioned
-        5. If unsure about a page name, do NOT include it
-        6. Limit to maximum 2 pages unless query explicitly mentions more items
-        
-        Respond ONLY with the exact page names separated by commas. No additional text.
-        Examples:
-        - Query: "what drops abyssal whip?" -> "Abyssal_whip,Abyssal_demon"
-        - Query: "what is a dragon scimitar" -> "Dragon_scimitar"
-        - Query: "best weapon" -> "" (too vague, no specific items mentioned)
+        3. For items, use exact names with underscores (e.g., "Dragon_scimitar")
+        4. For NPCs/bosses, include their Strategies page if available
+        5. For skill pages, include their Training page
+        6. Limit to maximum 2 pages per source unless more are explicitly mentioned
 
-        User Query: {user_query}
+        Query: {user_query}
+        
+        Respond ONLY with page names separated by commas. No additional text.
+        Example: "Dragon_scimitar,Abyssal_whip"
         """
         
-        text_response = await asyncio.to_thread(
-            lambda: model.generate_content(prompt).text
+        generation = await asyncio.to_thread(
+            lambda: model.generate_content(prompt)
         )
-        
-        # Clean up the response to get just the page names
-        page_names = [name.strip() for name in text_response.split(',') if name.strip()]
+        page_names = [name.strip() for name in generation.text.split(',') if name.strip()]
         print(f"Identified wiki pages: {page_names}")
         return page_names
         
@@ -413,14 +463,14 @@ async def identify_wiki_pages(user_query):
         print(f"Error identifying wiki pages: {e}")
         return []
 
-async def process_user_query(user_query: str) -> str:
-    """Process a user query about OSRS using Gemini and the OSRS Wiki"""
+async def process_user_query(user_query: str, image_urls: list[str] = None) -> str:
+    """Process a user query about OSRS using Gemini and the OSRS Wiki, optionally with images"""
     if not config.gemini_api_key:
         return "Sorry, the OSRS Wiki assistant is not available because the Gemini API key is not set."
         
     try:
-        # Identify relevant wiki pages using function calling
-        page_names = await identify_wiki_pages(user_query)
+        # Identify relevant wiki pages, potentially using image analysis
+        page_names = await identify_wiki_pages(user_query, image_urls)
         
         if not page_names:
             return "I couldn't determine which wiki pages to search. Please try rephrasing your query to be more specific about OSRS content."
@@ -514,29 +564,27 @@ async def process_user_query(user_query: str) -> str:
 # Register OSRS commands
 def setup_osrs_commands(bot):
     @bot.command(name='askyomi', aliases=['yomi', 'ask'])
-    async def askyomi(ctx, *, user_query: str):
+    async def askyomi(ctx, *, user_query: str = ""):
+        # Check for image attachments
+        image_urls = []
+        if ctx.message.attachments:
+            for attachment in ctx.message.attachments:
+                if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                    image_urls.append(attachment.url)
+
+        # If no query text and no images, show error
+        if not user_query and not image_urls:
+            await ctx.send("Please provide a question or attach an image to analyze.")
+            return
+
         # Let the user know we're processing their request
-        await ctx.send("Processing your request, this may take a moment...")
-        
-        response = await process_user_query(user_query)
-        
-        # Discord has a 2000 character limit per message
-        max_length = 1900  # Reduced to give more safety margin
-        if len(response) > max_length:
-            # Split at the last period or newline before max_length
-            chunks = []
-            while response:
-                split_index = max_length
-                for char in ['.', '\n']:
-                    last_split = response[:max_length].rfind(char)
-                    if last_split != -1:
-                        split_index = last_split + 1
-                        break
-                chunks.append(response[:split_index].strip())
-                response = response[split_index:].strip()
-            
-            for i, chunk in enumerate(chunks, 1):
-                msg = f"{chunk}\n\n[Part {i}/{len(chunks)}]"
-                await ctx.send(msg)
+        if image_urls:
+            await ctx.send("Processing your image(s) and request, this may take a moment...")
         else:
+            await ctx.send("Processing your request, this may take a moment...")
+
+        try:
+            response = await process_user_query(user_query or "What is this OSRS item?", image_urls)
             await ctx.send(response)
+        except Exception as e:
+            await ctx.send(f"Error processing your request: {str(e)}")
