@@ -28,23 +28,36 @@ A versatile Discord bot for OSRS Clan Mesa with music playback, Old School RuneS
    cd yomibot
    ```
 
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+2. Install ffmpeg (required for music playback):
+    ```bash
+    # On Ubuntu/Debian
+    sudo apt-get install ffmpeg
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+    # On macOS with Homebrew
+    brew install ffmpeg
 
-4. Configure the bot (see Configuration section)
+    # On Windows
+    # Download from https://github.com/BtbN/FFmpeg-Builds/releases
+    # Extract and add to system PATH
+    ```
 
-5. Run the bot:
-   ```bash
-   python src/yomibot.py
-   ```
+3. Create and activate a virtual environment:
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+
+4. Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+5. Configure the bot (see Configuration section)
+
+6. Run the bot:
+    ```bash
+    python src/yomibot.py
+    ```
 
 ## Configuration
 
@@ -67,6 +80,14 @@ Set the `GEMINI_API_KEY` environment variable with your Google Gemini API key:
 ```bash
 export GEMINI_API_KEY=your_gemini_api_key
 ```
+
+### YouTube Cookies (Optional)
+To play age-restricted YouTube videos, create a `youtube_cookies.txt` file in the root directory:
+1. Install the [Cookie-Editor](https://cookie-editor.com/) browser extension
+2. Go to YouTube and log in
+3. Click the Cookie-Editor extension icon
+4. Click "Export" and select "Netscape HTTP Cookie File"
+5. Save the exported content as `youtube_cookies.txt` in the bot's root directory
 
 ## Usage
 
