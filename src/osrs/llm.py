@@ -244,18 +244,70 @@ async def process_user_query(user_query: str, image_urls: list[str] = None) -> s
             for page in updated_page_names:
                 clean_page = page.replace(' ', '_').strip('[]')
                 base_url = f"https://oldschool.runescape.wiki/w/{clean_page}"
-                # Handle various URL patterns
-                patterns = [
-                    (f"[{base_url}]({base_url})", base_url),  # Markdown style
-                    (f"[<{base_url}>]", base_url),  # Bracketed angle brackets
-                    (f"(<{base_url}>)", base_url),  # Parenthesized angle brackets
-                    (f"[{base_url}]", base_url),  # Simple brackets
-                ]
-                # First remove any special formatting
-                for pattern, replacement in patterns:
-                    response = response.replace(pattern, replacement)
-                # Then add the single angle brackets if the URL is bare
-                response = response.replace(base_url, f"<{base_url}>")
+                
+                # Import regex at the top level to avoid repeated imports
+                import re
+                
+                # First, handle the specific broken URL format with escaped underscores
+                # This pattern matches: ([URL\_with\_escaped\_underscores](<URL_with_normal_underscores>))
+                escaped_page = clean_page.replace('_', '\\_')
+                escaped_url = f"https://oldschool.runescape.wiki/w/{escaped_page}"
+                
+                # Create a pattern that matches the problematic format with both escaped and unescaped versions
+                pattern = r'\(\[' + re.escape(escaped_url) + r'\]\(<' + re.escape(base_url) + r'>\)\)'
+                response = re.sub(pattern, f"(<{base_url}>)", response)
+                
+                # Handle special case for URLs with parentheses
+                if '(' in clean_page and ')' in clean_page:
+                    # Extract the parts before and after the parenthesis
+                    before_paren = clean_page.split('(')[0]
+                    paren_part = '(' + clean_page.split('(')[1]
+                    
+                    # Create escaped versions for both parts
+                    escaped_before = before_paren.replace('_', '\\_')
+                    escaped_paren = paren_part.replace('_', '\\_')
+                    
+                    # Fix cases where the URL is broken with parentheses
+                    broken_pattern = f"(<https://oldschool.runescape.wiki/w/{before_paren}>_{paren_part})"
+                    correct_url = f"<https://oldschool.runescape.wiki/w/{clean_page}>"
+                    response = response.replace(broken_pattern, correct_url)
+                    
+                    # Also handle the escaped version
+                    broken_escaped = f"(<https://oldschool.runescape.wiki/w/{escaped_before}>\\_{escaped_paren})"
+                    response = response.replace(broken_escaped, correct_url)
+                
+                # Define a more comprehensive cleaning function for URL patterns
+                def clean_url_patterns(text, url, escaped_url=None):
+                    if escaped_url is None:
+                        escaped_url = url
+                    
+                    # Handle the specific broken format with both escaped and unescaped versions
+                    # ([URL](<URL>))
+                    text = re.sub(r'\(\[\s*' + re.escape(escaped_url) + r'\s*\]\s*\(\s*<\s*' + re.escape(url) + r'\s*>\s*\)\s*\)', f"(<{url}>)", text)
+                    
+                    # Handle other common patterns
+                    patterns = [
+                        (f"[{escaped_url}]({url})", f"<{url}>"),  # Markdown with escaped URL
+                        (f"[{url}]({url})", f"<{url}>"),  # Markdown style
+                        (f"[<{url}>]", f"<{url}>"),  # Bracketed angle brackets
+                        (f"(<{url}>)", f"<{url}>"),  # Parenthesized angle brackets - preserve this format
+                        (f"[{url}]", f"<{url}>"),  # Simple brackets
+                        (f"({url})", f"<{url}>"),  # Simple parentheses
+                    ]
+                    
+                    # Apply each pattern replacement
+                    for pattern, replacement in patterns:
+                        text = text.replace(pattern, replacement)
+                    
+                    # Ensure the URL is wrapped in angle brackets if it's not already
+                    # But avoid double-wrapping URLs that are already properly formatted
+                    if f"<{url}>" not in text and url in text:
+                        text = text.replace(url, f"<{url}>")
+                    
+                    return text
+                
+                # Apply the cleaning function with both regular and escaped URLs
+                response = clean_url_patterns(response, base_url, escaped_url)
         
         return response
         
