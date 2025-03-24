@@ -43,7 +43,7 @@ A versatile Discord bot for OSRS Clan Mesa with music playback, Old School RuneS
 
 5. Run the bot:
    ```bash
-   python yomibot/yomibot.py
+   python src/yomibot.py
    ```
 
 ## Configuration
@@ -73,7 +73,7 @@ export GEMINI_API_KEY=your_gemini_api_key
 ### Running the Bot
 You can run the bot directly with Python:
 ```bash
-python yomibot/yomibot.py
+python src/yomibot.py
 ```
 
 Or use the provided shell script to run it in a screen session:
@@ -93,9 +93,12 @@ chmod +x start_yomibot.sh
 - `!purge` - Clear the queue (aliases: `!pu`, `!cl`, `!cls`, `!clr`, `!clear`)
 - `!join` - Join voice channel (aliases: `!j`, `!c`, `!connect`)
 - `!leave` - Leave voice channel (aliases: `!l`, `!dc`, `!disconnect`, `!stop`)
+- `!pause` - Pause playback (alias: `!ps`)
+- `!resume` - Resume playback (alias: `!rs`)
 
 ### OSRS Commands
 - `!askyomi <query>` - Ask a question about Old School RuneScape
+- `!player <username>` - Look up player highscores on Wise Old Man
 
 ### Competition Commands
 - `!sotw` - Display recent Skill of the Week competitions
@@ -107,21 +110,24 @@ chmod +x start_yomibot.sh
 ## Project Structure
 
 ```
-yomibot/
-├── yomibot.py              # Main bot file
-├── config/                 # Configuration handling
+src/
+├── yomibot.py             # Main bot file
+├── config/                # Configuration handling
 │   ├── __init__.py
 │   └── config.py
-├── music/                  # Music player functionality
+├── music/                 # Music player functionality
 │   ├── __init__.py
-│   └── player.py
-├── osrs/                   # OSRS Wiki integration
+│   ├── music_commands.py
+│   ├── music_manager.py
+│   └── music_sources.py
+├── osrs/                  # OSRS Wiki integration
 │   ├── __init__.py
+│   ├── llm.py
 │   └── wiki.py
-├── competition/            # Competition tracking
+├── wiseoldman/           # Wise Old Man API integration
 │   ├── __init__.py
 │   └── tracker.py
-└── utils/                  # Utility functions
+└── utils/                # Utility functions
     ├── __init__.py
     └── helpers.py
 ```

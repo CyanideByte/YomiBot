@@ -8,9 +8,9 @@ import re
 from config.config import config
 
 # Import modules
-from music.player import setup_music_commands
+from music import setup_music_commands
 from osrs.wiki import setup_osrs_commands
-from competition.tracker import setup_competition_commands
+from wiseoldman.tracker import setup_competition_commands
 
 # Define the intents
 intents = discord.Intents.default()
@@ -25,7 +25,7 @@ def case_insensitive_prefix(bot, message):
 class CaseInsensitiveBot(commands.Bot):
     def __init__(self, *args, **kwargs):
         self.other_bot_commands = kwargs.pop('other_bot_commands', set())
-        self.allowed_channel_keywords = {'music', 'command', 'bot'}
+        self.allowed_channel_keywords = {'music', 'command', 'bot', 'yomi'}
 
         # Enable case-insensitive commands
         super().__init__(*args, **kwargs, case_insensitive=True)
@@ -36,7 +36,7 @@ class CaseInsensitiveBot(commands.Bot):
         channel_name = message.channel.name.lower()
         invoked = (ctx.invoked_with or "").lower()
         
-        if invoked not in ("sotw", "botw", "askyomi", "ask", "yomi",  "about") and not any(keyword in channel_name for keyword in self.allowed_channel_keywords):
+        if invoked not in ("sotw", "botw", "askyomi", "ask", "yomi", "about", "player", "lookup") and not any(keyword in channel_name for keyword in self.allowed_channel_keywords):
             return None
             
         if (invoked == "askyomi" or invoked == "ask" or invoked == "yomi") and "yomi" not in channel_name:
