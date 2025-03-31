@@ -191,6 +191,8 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         
         # Check if we have no pages and should use previous context
         previous_context = ""
+        used_previous_context = False
+        
         if not page_names and user_id and user_id in user_interactions:
             # Check if previous interaction is within the time window
             prev_interaction = user_interactions[user_id]
@@ -198,7 +200,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             
             if (current_time - prev_interaction['timestamp']) <= INTERACTION_WINDOW:
                 # Use previous pages if available
-                page_names = prev_interaction['pages']
+                page_names = prev_interaction['pages'].copy()  # Make a copy to avoid modifying the original
                 
                 # Add previous context to the conversation
                 previous_context = f"""
@@ -209,28 +211,48 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
                 I'll use the same wiki pages to answer your follow-up question.
                 """
                 print(f"Using previous context for user {user_id}")
+                used_previous_context = True
+                
+                # Try to identify additional wiki pages with the combined context
+                if previous_context:
+                    combined_query = f"{user_query}\n\nContext from previous conversation: {prev_interaction['query']}\n{prev_interaction['response']}"
+                    print(f"Trying to identify additional wiki pages with combined context")
+                    
+                    additional_pages = await identify_wiki_pages(combined_query, image_urls)
+                    
+                    # Add any new pages that aren't already in the list
+                    if additional_pages:
+                        for page in additional_pages:
+                            if page not in page_names:
+                                page_names.append(page)
+                                print(f"Added additional wiki page from context: {page}")
         
-        if not page_names:
-            return "I couldn't determine which wiki pages to search. Please try rephrasing your query to be more specific about OSRS content."
-        
-        print(f"Fetching wiki pages: {', '.join(page_names)}")
-        
-        # Fetch content from identified wiki pages
-        wiki_content, redirects = await asyncio.to_thread(
-            fetch_osrs_wiki_pages, page_names
-        )
-        
-        # Update page_names with redirected names for correct source URLs
+        # Set up wiki_content and updated_page_names
+        wiki_content = ""
         updated_page_names = []
-        for page in page_names:
-            if page in redirects:
-                updated_page_names.append(redirects[page])
-            else:
-                updated_page_names.append(page)
         
-        print(f"Retrieved content from {len(page_names)} wiki pages")
-        if redirects:
-            print(f"Followed redirects: {redirects}")
+        if page_names:
+            print(f"Fetching wiki pages: {', '.join(page_names)}")
+            
+            # Fetch content from identified wiki pages
+            wiki_content, redirects = await asyncio.to_thread(
+                fetch_osrs_wiki_pages, page_names
+            )
+            
+            # Update page_names with redirected names for correct source URLs
+            for page in page_names:
+                if page in redirects:
+                    updated_page_names.append(redirects[page])
+                else:
+                    updated_page_names.append(page)
+            
+            print(f"Retrieved content from {len(page_names)} wiki pages")
+            if redirects:
+                print(f"Followed redirects: {redirects}")
+        else:
+            # No wiki pages identified, set wiki_content to indicate this
+            wiki_content = "No specific OSRS Wiki pages were identified for this query. Please provide the best answer you can based on your knowledge of Old School RuneScape."
+            print("No wiki pages identified, using model's own knowledge")
         
         # Use text-based approach for response formatting
         # Function calling works for page identification but not for response formatting
