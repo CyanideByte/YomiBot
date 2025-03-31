@@ -2,6 +2,7 @@ import asyncio
 import aiohttp
 from PIL import Image
 import io
+import time
 import google.generativeai as genai
 from config.config import config
 
@@ -9,6 +10,11 @@ from config.config import config
 from osrs.wiki import fetch_osrs_wiki_pages
 # Import player tracking functions from tracker.py
 from wiseoldman.tracker import get_guild_members, fetch_player_details, format_player_data
+# Store user's recent interactions (user_id -> {timestamp, query, response, pages})
+user_interactions = {}
+
+# Time window in seconds for considering previous interactions (5 minutes)
+INTERACTION_WINDOW = 300  # 5 minutes * 60 seconds
 
 # Configure the Gemini API
 if config.gemini_api_key:
@@ -174,7 +180,7 @@ async def process_player_data_query(user_query: str, player_data_list: list, ima
         print(f"Error processing player data query: {e}")
         return f"Error processing your player data query: {str(e)}"
 
-async def process_user_query(user_query: str, image_urls: list[str] = None) -> str:
+async def process_user_query(user_query: str, image_urls: list[str] = None, user_id: str = None) -> str:
     """Process a user query about OSRS using Gemini and the OSRS Wiki, optionally with images"""
     if not config.gemini_api_key:
         return "Sorry, the OSRS Wiki assistant is not available because the Gemini API key is not set."
@@ -182,6 +188,27 @@ async def process_user_query(user_query: str, image_urls: list[str] = None) -> s
     try:
         # Identify relevant wiki pages, potentially using image analysis
         page_names = await identify_wiki_pages(user_query, image_urls)
+        
+        # Check if we have no pages and should use previous context
+        previous_context = ""
+        if not page_names and user_id and user_id in user_interactions:
+            # Check if previous interaction is within the time window
+            prev_interaction = user_interactions[user_id]
+            current_time = time.time()
+            
+            if (current_time - prev_interaction['timestamp']) <= INTERACTION_WINDOW:
+                # Use previous pages if available
+                page_names = prev_interaction['pages']
+                
+                # Add previous context to the conversation
+                previous_context = f"""
+                Your previous question: {prev_interaction['query']}
+                
+                My previous answer: {prev_interaction['response']}
+                
+                I'll use the same wiki pages to answer your follow-up question.
+                """
+                print(f"Using previous context for user {user_id}")
         
         if not page_names:
             return "I couldn't determine which wiki pages to search. Please try rephrasing your query to be more specific about OSRS content."
@@ -212,6 +239,8 @@ async def process_user_query(user_query: str, image_urls: list[str] = None) -> s
         prompt = f"""
         {SYSTEM_PROMPT}
         
+        {previous_context}
+        
         User Query: {user_query}
         
         OSRS Wiki Information:
@@ -232,10 +261,20 @@ async def process_user_query(user_query: str, image_urls: list[str] = None) -> s
            * Other numerical values
         5. Include sources at the end using the URL format: https://oldschool.runescape.wiki/w/[page_name]
         """
-        
         response = await asyncio.to_thread(
             lambda: model.generate_content(prompt).text
         )
+        
+        # Store this interaction if user_id is provided
+        if user_id:
+            user_interactions[user_id] = {
+                'timestamp': time.time(),
+                'query': user_query,
+                'response': response,
+                'pages': page_names
+            }
+            print(f"Stored interaction for user {user_id}")
+        
         
         # Add source citations if not already included
         if not any(f"https://oldschool.runescape.wiki/w/{page.replace(' ', '_')}" in response for page in updated_page_names):
@@ -328,6 +367,9 @@ async def process_user_query(user_query: str, image_urls: list[str] = None) -> s
 def register_commands(bot):
     @bot.command(name='askyomi', aliases=['yomi', 'ask'])
     async def askyomi(ctx, *, user_query: str = ""):
+        # Get the user's Discord ID for context tracking
+        user_id = str(ctx.author.id)
+        
         # Check for image attachments
         image_urls = []
         if ctx.message.attachments:
@@ -372,7 +414,7 @@ def register_commands(bot):
                     return
             
             # If no members were found or player data couldn't be fetched, use the regular process
-            response = await process_user_query(user_query or "What is this OSRS item?", image_urls)
+            response = await process_user_query(user_query or "What is this OSRS item?", image_urls, user_id)
             await ctx.send(response)
         except Exception as e:
             await ctx.send(f"Error processing your request: {str(e)}")
