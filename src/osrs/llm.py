@@ -50,7 +50,7 @@ async def identify_items_in_images(images: list[Image.Image]) -> list[str]:
         return []
 
     try:
-        model = genai.GenerativeModel(config.gemini_model)
+        model = genai.GenerativeModel(config.gemini_flash_model)
         prompt = """Name the OSRS items, NPCs, or locations you see in these images. Use exact wiki page names with underscores.
 
         Respond ONLY with comma-separated wiki page names, no explanations or other text.
@@ -73,7 +73,7 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         return []
     
     try:
-        model = genai.GenerativeModel(config.gemini_model)
+        model = genai.GenerativeModel(config.gemini_flash_model)
         
         # Stage 1: Process images if present
         identified_items = []
@@ -112,7 +112,7 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
 
         Query: {user_query}
         
-        Respond ONLY with page names separated by commas. No additional text.
+        Respond ONLY with page names separated by commas. No additional text. MAXIMUM 5 most important pages
         Example: "Dragon_scimitar,Abyssal_whip"
         If no pages can be determined, respond with: "[NO_PAGES_FOUND]"
         """
@@ -127,7 +127,7 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
             print("Identified wiki pages: []")
             return []
             
-        page_names = [name.strip() for name in response_text.split(',') if name.strip()]
+        page_names = [name.strip() for name in response_text.split(',') if name.strip()][:5]
         print(f"Identified wiki pages: {page_names}")
         return page_names
         
@@ -141,7 +141,7 @@ async def process_player_data_query(user_query: str, player_data_list: list, ima
         return "Sorry, the OSRS player query assistant is not available because the Gemini API key is not set."
     
     try:
-        model = genai.GenerativeModel(config.gemini_model)
+        model = genai.GenerativeModel(config.gemini_flash_model)
         
         # Format player data for context
         player_context = ""
@@ -256,7 +256,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         
         # Use text-based approach for response formatting
         # Function calling works for page identification but not for response formatting
-        model = genai.GenerativeModel(config.gemini_model)
+        model = genai.GenerativeModel(config.gemini_flash_model)
         
         prompt = f"""
         {SYSTEM_PROMPT}
@@ -299,7 +299,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         
         
         # Add source citations if not already included
-        if not any(f"https://oldschool.runescape.wiki/w/{page.replace(' ', '_')}" in response for page in updated_page_names):
+        if updated_page_names and not any(f"https://oldschool.runescape.wiki/w/{page.replace(' ', '_')}" in response for page in updated_page_names):
             sources = "\n\nSources:"
             for page in updated_page_names:
                 # Clean the page name and add URL
@@ -309,7 +309,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             # Make sure the response with sources doesn't exceed Discord's limit
             if len(response) + len(sources) <= 1990:
                 response += sources
-        else:
+        elif updated_page_names:
             # Clean any URLs in the response to use angle brackets
             for page in updated_page_names:
                 clean_page = page.replace(' ', '_').strip('[]')

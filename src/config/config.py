@@ -7,7 +7,9 @@ class Config:
         self.bot_token = None
         self.spotify_credentials = None
         self.gemini_api_key = None
-        self.gemini_model = "gemini-2.0-flash"
+        self.gemini_flash_model = "gemini-2.0-flash"
+        self.gemini_thinking_model = "gemini-2.0-flash-thinking-exp-01-21"
+        self.gemini_pro_model = "gemini-2.5-pro-exp-03-25"
         self.load_config()
     
     def load_config(self):
