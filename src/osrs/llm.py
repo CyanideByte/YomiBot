@@ -14,7 +14,7 @@ from wiseoldman.tracker import get_guild_members, fetch_player_details, format_p
 user_interactions = {}
 
 # Time window in seconds for considering previous interactions (5 minutes)
-INTERACTION_WINDOW = 300  # 5 minutes * 60 seconds
+INTERACTION_WINDOW = 60  # 1 minutes * 60 seconds
 
 # Configure the Gemini API
 if config.gemini_api_key:
@@ -23,6 +23,7 @@ if config.gemini_api_key:
 # System prompt for Gemini
 SYSTEM_PROMPT = """
 You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS using information provided from the OSRS Wiki.
+Your name is YomiBot, you were created by CyanideByte to assist members of the Mesa clan.
 
 Content Rules:
 1. Use only the provided wiki information when possible.
@@ -191,7 +192,6 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         
         # Check if we have no pages and should use previous context
         previous_context = ""
-        used_previous_context = False
         
         if not page_names and user_id and user_id in user_interactions:
             # Check if previous interaction is within the time window
@@ -211,7 +211,6 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
                 I'll use the same wiki pages to answer your follow-up question.
                 """
                 print(f"Using previous context for user {user_id}")
-                used_previous_context = True
                 
                 # Try to identify additional wiki pages with the combined context
                 if previous_context:
@@ -299,7 +298,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         
         
         # Add source citations if not already included
-        if updated_page_names and not any(f"https://oldschool.runescape.wiki/w/{page.replace(' ', '_')}" in response for page in updated_page_names):
+        if not any(f"https://oldschool.runescape.wiki/w/{page.replace(' ', '_')}" in response for page in updated_page_names):
             sources = "\n\nSources:"
             for page in updated_page_names:
                 # Clean the page name and add URL
@@ -307,9 +306,9 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
                 sources += f"\n- <https://oldschool.runescape.wiki/w/{clean_page}>"
             
             # Make sure the response with sources doesn't exceed Discord's limit
-            if len(response) + len(sources) <= 1990:
+            if len(response) + len(sources) <= 1900:
                 response += sources
-        elif updated_page_names:
+        else:
             # Clean any URLs in the response to use angle brackets
             for page in updated_page_names:
                 clean_page = page.replace(' ', '_').strip('[]')
@@ -379,7 +378,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
                 # Apply the cleaning function with both regular and escaped URLs
                 response = clean_url_patterns(response, base_url, escaped_url)
         
-        return response
+        return response[:1900] + "\n\n(Response length exceeded)" if len(response) > 1900 else response
         
     except Exception as e:
         print(f"Error processing query: {e}")
