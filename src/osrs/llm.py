@@ -102,17 +102,26 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         6. When the user refers to Chambers of Xeric or CoX, also include the page Ancient_chest
         7. When the user refers to Theatre of Blood or ToB, also include the page Monumental_chest
         8. When the user refers to Tombs of Amascut or ToA, also include the page Chest_(Tombs_of_Amascut)
+        9. If you cannot determine any wiki pages from the query, respond ONLY with "[NO_PAGES_FOUND]"
 
         Query: {user_query}
         
         Respond ONLY with page names separated by commas. No additional text.
         Example: "Dragon_scimitar,Abyssal_whip"
+        If no pages can be determined, respond with: "[NO_PAGES_FOUND]"
         """
         
         generation = await asyncio.to_thread(
             lambda: model.generate_content(prompt)
         )
-        page_names = [name.strip() for name in generation.text.split(',') if name.strip()]
+        response_text = generation.text.strip()
+        
+        # Check if the response indicates no pages were found
+        if response_text == "[NO_PAGES_FOUND]":
+            print("Identified wiki pages: []")
+            return []
+            
+        page_names = [name.strip() for name in response_text.split(',') if name.strip()]
         print(f"Identified wiki pages: {page_names}")
         return page_names
         
