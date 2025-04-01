@@ -8,6 +8,8 @@ from config.config import config
 
 # Import wiki-related functions from wiki.py
 from osrs.wiki import fetch_osrs_wiki_pages
+# Import web search functions from search.py
+from osrs.search import get_web_search_context
 # Import player tracking functions from tracker.py
 from wiseoldman.tracker import get_guild_members, fetch_player_details, format_player_data
 # Store user's recent interactions (user_id -> {timestamp, query, response, pages})
@@ -23,7 +25,6 @@ if config.gemini_api_key:
 # System prompt for Gemini
 SYSTEM_PROMPT = """
 You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS using information provided from the OSRS Wiki.
-Your name is YomiBot, you were created by CyanideByte to assist members of the Mesa clan.
 
 Content Rules:
 1. Use only the provided wiki information when possible.
@@ -135,6 +136,37 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
     except Exception as e:
         print(f"Error identifying wiki pages: {e}")
         return []
+
+async def generate_search_term(query):
+    """Use Gemini to generate a search term based on the user query"""
+    if not config.gemini_api_key:
+        print("Gemini API key not set")
+        return query
+    
+    try:
+        model = genai.GenerativeModel(config.gemini_flash_model)
+        
+        prompt = f"""
+        You are an assistant that helps generate effective search terms for Old School RuneScape (OSRS) related queries.
+        
+        Given the following user query, generate a concise search term that would be effective for finding relevant information online.
+        The search term should be focused on OSRS content and be 2-5 words long.
+        
+        User Query: {query}
+        
+        Respond ONLY with the search term, no additional text or explanation.
+        """
+        
+        generation = await asyncio.to_thread(
+            lambda: model.generate_content(prompt)
+        )
+        search_term = generation.text.strip()
+        print(f"Generated search term: {search_term}")
+        return search_term
+        
+    except Exception as e:
+        print(f"Error generating search term: {e}")
+        return query  # Fall back to original query if there's an error
 
 async def process_player_data_query(user_query: str, player_data_list: list, image_urls: list[str] = None) -> str:
     """Process a user query with player data using Gemini"""
@@ -250,9 +282,12 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             if redirects:
                 print(f"Followed redirects: {redirects}")
         else:
-            # No wiki pages identified, set wiki_content to indicate this
-            wiki_content = "No specific OSRS Wiki pages were identified for this query. Please provide the best answer you can based on your knowledge of Old School RuneScape."
-            print("No wiki pages identified, using model's own knowledge")
+            # No wiki pages identified, perform web search
+            print("No wiki pages identified, performing web search...")
+            
+            # Get web search context
+            wiki_content = await get_web_search_context(user_query)
+            print("Using web search results as context")
         
         # Use text-based approach for response formatting
         # Function calling works for page identification but not for response formatting
@@ -297,9 +332,55 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             }
             print(f"Stored interaction for user {user_id}")
         
+        # Import regex at the top level to avoid repeated imports
+        import re
         
-        # Add source citations if not already included
-        if not any(f"https://oldschool.runescape.wiki/w/{page.replace(' ', '_')}" in response for page in updated_page_names):
+        # Define a comprehensive cleaning function for URL patterns
+        def clean_url_patterns(text, url, escaped_url=None):
+            if escaped_url is None:
+                escaped_url = url
+            
+            # Handle the specific broken format with both escaped and unescaped versions
+            # ([URL](<URL>))
+            text = re.sub(r'\(\[\s*' + re.escape(escaped_url) + r'\s*\]\s*\(\s*<\s*' + re.escape(url) + r'\s*>\s*\)\s*\)', f"(<{url}>)", text)
+            
+            # Handle other common patterns
+            patterns = [
+                (f"[{escaped_url}]({url})", f"<{url}>"),  # Markdown with escaped URL
+                (f"[{url}]({url})", f"<{url}>"),  # Markdown style
+                (f"[<{url}>]", f"<{url}>"),  # Bracketed angle brackets
+                (f"(<{url}>)", f"<{url}>"),  # Parenthesized angle brackets - preserve this format
+                (f"[{url}]", f"<{url}>"),  # Simple brackets
+                (f"({url})", f"<{url}>"),  # Simple parentheses
+            ]
+            
+            # Apply each pattern replacement
+            for pattern, replacement in patterns:
+                text = text.replace(pattern, replacement)
+            
+            # Ensure the URL is wrapped in angle brackets if it's not already
+            # But avoid double-wrapping URLs that are already properly formatted
+            if f"<{url}>" not in text and url in text:
+                # Use regex with word boundaries to avoid partial replacements
+                text = re.sub(r'(?<!\<)' + re.escape(url) + r'(?!\>)', f"<{url}>", text)
+            
+            return text
+        
+        # Check if the model has already generated a "Sources:" section
+        # If found, cut off the response at that point
+        sources_index = response.find("\n\nSources:")
+        if sources_index == -1:
+            sources_index = response.find("\nSources:")
+        
+        if sources_index != -1:
+            # Cut off the response at the Sources line
+            response = response[:sources_index].rstrip()
+        
+        # Now add our own source citations
+        sources_added = False
+        
+        # Check if we have wiki pages
+        if updated_page_names:
             sources = "\n\nSources:"
             for page in updated_page_names:
                 # Clean the page name and add URL
@@ -309,75 +390,88 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             # Make sure the response with sources doesn't exceed Discord's limit
             if len(response) + len(sources) <= 1900:
                 response += sources
-        else:
-            # Clean any URLs in the response to use angle brackets
-            for page in updated_page_names:
-                clean_page = page.replace(' ', '_').strip('[]')
-                base_url = f"https://oldschool.runescape.wiki/w/{clean_page}"
+                sources_added = True
+        
+        # Check if we have web search results
+        elif "=== WEB SEARCH RESULTS ===" in wiki_content and not sources_added:
+            # Extract URLs from the web search results
+            source_urls = []
+            source_pattern = re.compile(r'Source: <(https?://[^>]+)>')
+            source_matches = source_pattern.findall(wiki_content)
+            
+            if source_matches:
+                sources = "\n\nSources:"
+                for url in source_matches:
+                    sources += f"\n- <{url}>"
                 
-                # Import regex at the top level to avoid repeated imports
-                import re
+                # Make sure the response with sources doesn't exceed Discord's limit
+                if len(response) + len(sources) <= 1900:
+                    response += sources
+                    sources_added = True
+        
+        # Now clean all URLs in the response, regardless of whether sources were added
+        
+        # First clean wiki URLs
+        for page in updated_page_names:
+            clean_page = page.replace(' ', '_').strip('[]')
+            base_url = f"https://oldschool.runescape.wiki/w/{clean_page}"
+            
+            # Handle escaped underscores
+            escaped_page = clean_page.replace('_', '\\_')
+            escaped_url = f"https://oldschool.runescape.wiki/w/{escaped_page}"
+            
+            # Create a pattern that matches the problematic format with both escaped and unescaped versions
+            pattern = r'\(\[' + re.escape(escaped_url) + r'\]\(<' + re.escape(base_url) + r'>\)\)'
+            response = re.sub(pattern, f"(<{base_url}>)", response)
+            
+            # Handle special case for URLs with parentheses
+            if '(' in clean_page and ')' in clean_page:
+                # Extract the parts before and after the parenthesis
+                before_paren = clean_page.split('(')[0]
+                paren_part = '(' + clean_page.split('(')[1]
                 
-                # First, handle the specific broken URL format with escaped underscores
-                # This pattern matches: ([URL\_with\_escaped\_underscores](<URL_with_normal_underscores>))
-                escaped_page = clean_page.replace('_', '\\_')
-                escaped_url = f"https://oldschool.runescape.wiki/w/{escaped_page}"
+                # Create escaped versions for both parts
+                escaped_before = before_paren.replace('_', '\\_')
+                escaped_paren = paren_part.replace('_', '\\_')
                 
-                # Create a pattern that matches the problematic format with both escaped and unescaped versions
-                pattern = r'\(\[' + re.escape(escaped_url) + r'\]\(<' + re.escape(base_url) + r'>\)\)'
-                response = re.sub(pattern, f"(<{base_url}>)", response)
+                # Fix cases where the URL is broken with parentheses
+                broken_pattern = f"(<https://oldschool.runescape.wiki/w/{before_paren}>_{paren_part})"
+                correct_url = f"<https://oldschool.runescape.wiki/w/{clean_page}>"
+                response = response.replace(broken_pattern, correct_url)
                 
-                # Handle special case for URLs with parentheses
-                if '(' in clean_page and ')' in clean_page:
-                    # Extract the parts before and after the parenthesis
-                    before_paren = clean_page.split('(')[0]
-                    paren_part = '(' + clean_page.split('(')[1]
-                    
-                    # Create escaped versions for both parts
-                    escaped_before = before_paren.replace('_', '\\_')
-                    escaped_paren = paren_part.replace('_', '\\_')
-                    
-                    # Fix cases where the URL is broken with parentheses
-                    broken_pattern = f"(<https://oldschool.runescape.wiki/w/{before_paren}>_{paren_part})"
-                    correct_url = f"<https://oldschool.runescape.wiki/w/{clean_page}>"
-                    response = response.replace(broken_pattern, correct_url)
-                    
-                    # Also handle the escaped version
-                    broken_escaped = f"(<https://oldschool.runescape.wiki/w/{escaped_before}>\\_{escaped_paren})"
-                    response = response.replace(broken_escaped, correct_url)
+                # Also handle the escaped version
+                broken_escaped = f"(<https://oldschool.runescape.wiki/w/{escaped_before}>\\_{escaped_paren})"
+                response = response.replace(broken_escaped, correct_url)
+            
+            # Apply the cleaning function with both regular and escaped URLs
+            response = clean_url_patterns(response, base_url, escaped_url)
+        
+        # Now find and clean all other URLs in the response
+        # Common URL patterns - improved to better handle special characters
+        url_pattern = re.compile(r'https?://[^\s<>"]+')
+        
+        # Find all URLs in the response
+        all_urls = url_pattern.findall(response)
+        
+        # Clean each URL that's not already properly formatted
+        for url in all_urls:
+            # More precise check for properly formatted URLs with angle brackets
+            if f"<{url}>" in response:
+                continue
                 
-                # Define a more comprehensive cleaning function for URL patterns
-                def clean_url_patterns(text, url, escaped_url=None):
-                    if escaped_url is None:
-                        escaped_url = url
+            # Skip URLs that are part of already properly formatted URLs
+            # This prevents partial URL matching issues
+            is_part_of_formatted_url = False
+            for formatted_url in [f"<{u}>" for u in all_urls if len(u) > len(url)]:
+                if formatted_url in response and url in formatted_url:
+                    is_part_of_formatted_url = True
+                    break
                     
-                    # Handle the specific broken format with both escaped and unescaped versions
-                    # ([URL](<URL>))
-                    text = re.sub(r'\(\[\s*' + re.escape(escaped_url) + r'\s*\]\s*\(\s*<\s*' + re.escape(url) + r'\s*>\s*\)\s*\)', f"(<{url}>)", text)
-                    
-                    # Handle other common patterns
-                    patterns = [
-                        (f"[{escaped_url}]({url})", f"<{url}>"),  # Markdown with escaped URL
-                        (f"[{url}]({url})", f"<{url}>"),  # Markdown style
-                        (f"[<{url}>]", f"<{url}>"),  # Bracketed angle brackets
-                        (f"(<{url}>)", f"<{url}>"),  # Parenthesized angle brackets - preserve this format
-                        (f"[{url}]", f"<{url}>"),  # Simple brackets
-                        (f"({url})", f"<{url}>"),  # Simple parentheses
-                    ]
-                    
-                    # Apply each pattern replacement
-                    for pattern, replacement in patterns:
-                        text = text.replace(pattern, replacement)
-                    
-                    # Ensure the URL is wrapped in angle brackets if it's not already
-                    # But avoid double-wrapping URLs that are already properly formatted
-                    if f"<{url}>" not in text and url in text:
-                        text = text.replace(url, f"<{url}>")
-                    
-                    return text
+            if is_part_of_formatted_url:
+                continue
                 
-                # Apply the cleaning function with both regular and escaped URLs
-                response = clean_url_patterns(response, base_url, escaped_url)
+            # Clean the URL
+            response = clean_url_patterns(response, url)
         
         return response[:1900] + "\n\n(Response length exceeded)" if len(response) > 1900 else response
         

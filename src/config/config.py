@@ -7,6 +7,7 @@ class Config:
         self.bot_token = None
         self.spotify_credentials = None
         self.gemini_api_key = None
+        self.brave_api_key = None
         self.gemini_flash_model = "gemini-2.0-flash"
         self.gemini_thinking_model = "gemini-2.0-flash-thinking-exp-01-21"
         self.gemini_pro_model = "gemini-2.5-pro-exp-03-25"
@@ -17,6 +18,7 @@ class Config:
         self._load_bot_token()
         self._load_spotify_credentials()
         self._load_gemini_config()
+        self._load_brave_config()
     
     def _load_bot_token(self):
         """Read bot token from bot_token.txt"""
@@ -44,6 +46,12 @@ class Config:
         self.gemini_api_key = os.getenv('GEMINI_API_KEY')
         if not self.gemini_api_key:
             print("Warning: GEMINI_API_KEY environment variable is not set")
+    
+    def _load_brave_config(self):
+        """Load Brave Search API configuration from environment variables"""
+        self.brave_api_key = os.getenv('BRAVE_API_KEY')
+        if not self.brave_api_key:
+            print("Warning: BRAVE_API_KEY environment variable is not set")
 
 # Create a singleton instance
 config = Config()
