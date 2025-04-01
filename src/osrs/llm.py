@@ -7,9 +7,9 @@ import google.generativeai as genai
 from config.config import config
 
 # Import wiki-related functions from wiki.py
-from osrs.wiki import fetch_osrs_wiki_pages
+from osrs.wiki import fetch_osrs_wiki_pages, fetch_osrs_wiki
 # Import web search functions from search.py
-from osrs.search import get_web_search_context
+from osrs.search import get_web_search_context, format_search_results
 # Import player tracking functions from tracker.py
 from wiseoldman.tracker import get_guild_members, fetch_player_details, format_player_data
 # Store user's recent interactions (user_id -> {timestamp, query, response, pages})
@@ -27,7 +27,7 @@ SYSTEM_PROMPT = """
 You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS using information provided from the OSRS Wiki.
 
 Content Rules:
-1. Use only the provided wiki information when possible.
+1. Use only the provided wiki information and web search results when possible.
 2. If you cannot provide an answer with the information given, state that clearly, and then provide an answer based on your own knowledge.
 3. Prioritize key information the player needs
 4. Format information clearly and consistently
@@ -188,10 +188,10 @@ async def process_player_data_query(user_query: str, player_data_list: list, ima
         You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS players using the provided player data.
         
         Formatting Rules:
-        1. Use * for bullet points (they format correctly in Discord)
+        1. Use - for bullet points (they format correctly in Discord)
         2. Bold important information with **text**, such as:
-           * Player names (e.g., **PlayerName**)
-           * Boss or skill names
+           - Player names (e.g., **PlayerName**)
+           - Boss or skill names
         3. Keep answers concise (under 2000 characters)
         4. Break information into clear sections if needed
         
@@ -259,34 +259,75 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         #                         page_names.append(page)
         #                         print(f"Added additional wiki page from context: {page}")
         
-        # Set up wiki_content and updated_page_names
+        # Set up variables for content and page tracking
         wiki_content = ""
         updated_page_names = []
+        wiki_page_names = page_names.copy()  # Make a copy to avoid modifying the original
+        non_wiki_sources = []
         
-        if page_names:
-            print(f"Fetching wiki pages: {', '.join(page_names)}")
+        # If we have less than 5 wiki pages identified or none at all, perform web search
+        if len(wiki_page_names) < 5:
+            print(f"Found {len(wiki_page_names)} wiki pages, performing web search to find more sources...")
+            
+            # Get raw search results
+            search_results = await get_web_search_context(user_query)
+            
+            # Process each search result
+            for result in search_results:
+                url = result.get('url', '')
+                
+                # Check if it's an OSRS wiki page
+                if "oldschool.runescape.wiki/w/" in url:
+                    # Extract the page name from the URL
+                    page_name = url.split("/w/")[-1]
+                    
+                    # Check if this page is already in our list to avoid duplicates
+                    if page_name not in wiki_page_names:
+                        wiki_page_names.append(page_name)
+                        print(f"Added wiki page from search results: {page_name}")
+                        
+                        # If we have 5 wiki pages, stop adding more
+                        if len(wiki_page_names) >= 5:
+                            break
+                else:
+                    # This is not a wiki page, add to non-wiki sources
+                    non_wiki_sources.append(result)
+        
+        # Now fetch all wiki pages we've identified
+        if wiki_page_names:
+            print(f"Fetching wiki pages: {', '.join(wiki_page_names)}")
             
             # Fetch content from identified wiki pages
             wiki_content, redirects = await asyncio.to_thread(
-                fetch_osrs_wiki_pages, page_names
+                fetch_osrs_wiki_pages, wiki_page_names
             )
             
             # Update page_names with redirected names for correct source URLs
-            for page in page_names:
+            for page in wiki_page_names:
                 if page in redirects:
                     updated_page_names.append(redirects[page])
                 else:
                     updated_page_names.append(page)
             
-            print(f"Retrieved content from {len(page_names)} wiki pages")
+            print(f"Retrieved content from {len(wiki_page_names)} wiki pages")
             if redirects:
                 print(f"Followed redirects: {redirects}")
-        else:
-            # No wiki pages identified, perform web search
-            print("No wiki pages identified, performing web search...")
+        
+        # If we have non-wiki sources, format them and append to wiki_content
+        if non_wiki_sources:
+            print(f"Adding {len(non_wiki_sources)} non-wiki sources to context")
+            non_wiki_content = format_search_results(non_wiki_sources)
+            wiki_content += non_wiki_content
+        
+        # If we have no content at all, perform a full web search
+        if not wiki_content:
+            print("No wiki pages identified, performing full web search...")
             
-            # Get web search context
-            wiki_content = await get_web_search_context(user_query)
+            # Get raw search results
+            search_results = await get_web_search_context(user_query)
+            
+            # Format the results for use as context
+            wiki_content = format_search_results(search_results)
             print("Using web search results as context")
         
         # Use text-based approach for response formatting
@@ -307,16 +348,21 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         1. Start with a **Section Header**
         2. Use * for list items (not bullet points)
         3. Bold ONLY:
-           * Item names (e.g., **Abyssal whip**)
-           * Monster/boss names (e.g., **Abyssal demon**)
-           * Location names (e.g., **Wilderness**)
-           * Section headers
+           - Item names (e.g., **Abyssal whip**)
+           - Monster/boss names (e.g., **Abyssal demon**)
+           - Location names (e.g., **Wilderness**)
+           - Section headers
         4. Do NOT bold:
-           * Drop rates
-           * Prices
-           * Combat stats
-           * Other numerical values
+           - Drop rates
+           - Prices
+           - Combat stats
+           - Other numerical values
         5. Include sources at the end using the URL format: https://oldschool.runescape.wiki/w/[page_name]
+           - Start your sources section with "Sources:" and then list the URLs that were used to answer the question.
+           - Only list sources that contained useful and relevant information for the answer.
+           - Use the - symbol for bullet points in the sources section.
+           - Wrap source in <> tags to suppress embedding in Discord.
+
         """
         response = await asyncio.to_thread(
             lambda: model.generate_content(prompt).text

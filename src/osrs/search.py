@@ -223,14 +223,13 @@ async def search_web(search_term):
     except Exception as e:
         print(f"Error during web search: {e}")
         return []
-        return []
 
 def format_search_results(results):
     """Format search results into a string for use as context"""
     if not results:
         return "No search results found."
     
-    formatted_text = "=== WEB SEARCH RESULTS ===\n\n"
+    formatted_text = "\n\n=== WEB SEARCH RESULTS ===\n\n"
     
     for i, result in enumerate(results, 1):
         formatted_text += f"--- RESULT {i}: {result['title']} ---\n"
@@ -239,9 +238,12 @@ def format_search_results(results):
         formatted_text += "\n\n" + "="*50 + "\n\n"
     
     return formatted_text
-
 async def get_web_search_context(query):
-    """Main function to get web search context for a query"""
+    """Main function to get web search context for a query
+    
+    Returns:
+        list: A list of search result dictionaries with 'title', 'url', and 'content' keys
+    """
     try:
         # Import here to avoid circular imports
         from osrs.llm import generate_search_term
@@ -252,10 +254,7 @@ async def get_web_search_context(query):
         # Search the web using the generated term
         search_results = await search_web(search_term)
         
-        # Format the results for use as context
-        formatted_context = format_search_results(search_results)
-        
-        return formatted_context
+        return search_results
     except Exception as e:
         print(f"Error getting web search context: {e}")
-        return f"Error performing web search: {str(e)}"
+        return []
