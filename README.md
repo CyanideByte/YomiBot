@@ -61,25 +61,28 @@ A versatile Discord bot for OSRS Clan Mesa with music playback, Old School RuneS
 
 ## Configuration
 
-YomiBot requires several configuration files:
+YomiBot uses environment variables for configuration. Create a `.env` file in the root directory based on the provided `.env.example` template:
 
-### Discord Bot Token
-Create a file named `bot_token.txt` in the root directory with your Discord bot token.
+1. Copy the example file:
+   ```bash
+   cp .env.example .env
+   ```
 
-### Spotify API Credentials (Optional)
-Create a file named `spotify_credentials.txt` in the root directory with your Spotify API credentials in JSON format:
-```json
-{
-  "client_id": "your_spotify_client_id",
-  "client_secret": "your_spotify_client_secret"
-}
-```
+2. Edit the `.env` file and fill in your credentials:
+   ```
+   # Discord Bot Token (Required)
+   DISCORD_BOT_TOKEN=your_discord_bot_token_here
 
-### Gemini API Key (Optional)
-Set the `GEMINI_API_KEY` environment variable with your Google Gemini API key:
-```bash
-export GEMINI_API_KEY=your_gemini_api_key
-```
+   # Spotify API Credentials (Optional)
+   SPOTIFY_CLIENT_ID=your_spotify_client_id_here
+   SPOTIFY_CLIENT_SECRET=your_spotify_client_secret_here
+
+   # Gemini API Key (Optional)
+   GEMINI_API_KEY=your_gemini_api_key_here
+
+   # Brave Search API Key (Optional)
+   BRAVE_API_KEY=your_brave_api_key_here
+   ```
 
 ### YouTube Cookies (Optional)
 To play age-restricted YouTube videos, create a `youtube_cookies.txt` file in the root directory:

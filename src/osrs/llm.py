@@ -25,6 +25,7 @@ if config.gemini_api_key:
 # System prompt for Gemini
 SYSTEM_PROMPT = """
 You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS using information provided from the OSRS Wiki.
+If asked about yourself, you are YomiBot, an assistant created by CyanideByte for clan Mesa.
 
 Content Rules:
 1. Use only the provided wiki information and web search results when possible.
@@ -52,7 +53,7 @@ async def identify_items_in_images(images: list[Image.Image]) -> list[str]:
         return []
 
     try:
-        model = genai.GenerativeModel(config.gemini_flash_model)
+        model = genai.GenerativeModel(config.gemini_model)
         prompt = """Name the OSRS items, NPCs, or locations you see in these images. Use exact wiki page names with underscores.
 
         Respond ONLY with comma-separated wiki page names, no explanations or other text.
@@ -75,7 +76,7 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         return []
     
     try:
-        model = genai.GenerativeModel(config.gemini_flash_model)
+        model = genai.GenerativeModel(config.gemini_model)
         
         # Stage 1: Process images if present
         identified_items = []
@@ -138,23 +139,27 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         return []
 
 async def generate_search_term(query):
-    """Use Gemini to generate a search term based on the user query"""
+    """Use Gemini to generate a search term based on the user query or determine if no search is needed"""
     if not config.gemini_api_key:
         print("Gemini API key not set")
         return query
     
     try:
-        model = genai.GenerativeModel(config.gemini_flash_model)
+        model = genai.GenerativeModel(config.gemini_model)
         
         prompt = f"""
         You are an assistant that helps generate effective search terms for Old School RuneScape (OSRS) related queries.
         
-        Given the following user query, generate a concise search term that would be effective for finding relevant information online.
+        Given the following user query, determine if additional information is needed to provide a complete answer.
+        
+        If the query can be answered without additional information (e.g. simple or common knowledge, asked about yourself), respond with EXACTLY: [NO_SEARCH_NEEDED]
+        
+        Otherwise, generate a concise search term that would be effective for finding relevant information online.
         The search term should be focused on OSRS content and be 2-5 words long.
         
         User Query: {query}
         
-        Respond ONLY with the search term, no additional text or explanation.
+        Respond ONLY with either [NO_SEARCH_NEEDED] or the search term, no additional text or explanation.
         """
         
         generation = await asyncio.to_thread(
@@ -174,7 +179,7 @@ async def process_player_data_query(user_query: str, player_data_list: list, ima
         return "Sorry, the OSRS player query assistant is not available because the Gemini API key is not set."
     
     try:
-        model = genai.GenerativeModel(config.gemini_flash_model)
+        model = genai.GenerativeModel(config.gemini_model)
         
         # Format player data for context
         player_context = ""
@@ -332,7 +337,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         
         # Use text-based approach for response formatting
         # Function calling works for page identification but not for response formatting
-        model = genai.GenerativeModel(config.gemini_flash_model)
+        model = genai.GenerativeModel(config.gemini_model)
         
         prompt = f"""
         {SYSTEM_PROMPT}

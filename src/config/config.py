@@ -1,5 +1,21 @@
 import json
 import os
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Get the project root directory (2 levels up from this file)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
+
+# Load environment variables from .env file
+dotenv_path = PROJECT_ROOT / '.env'
+if dotenv_path.exists():
+    print(f"Loading environment variables from {dotenv_path}")
+    load_dotenv(dotenv_path=dotenv_path)
+else:
+    print(f"Warning: .env file not found at {dotenv_path}")
+    # Try loading from current directory as fallback
+    load_dotenv()
 
 # Configuration class to handle loading and storing bot configuration
 class Config:
@@ -8,9 +24,7 @@ class Config:
         self.spotify_credentials = None
         self.gemini_api_key = None
         self.brave_api_key = None
-        self.gemini_flash_model = "gemini-2.0-flash"
-        self.gemini_thinking_model = "gemini-2.0-flash-thinking-exp-01-21"
-        self.gemini_pro_model = "gemini-2.5-pro-exp-03-25"
+        self.gemini_model = "gemini-2.0-flash"
         self.load_config()
     
     def load_config(self):
@@ -21,35 +35,79 @@ class Config:
         self._load_brave_config()
     
     def _load_bot_token(self):
-        """Read bot token from bot_token.txt"""
-        try:
-            with open('../bot_token.txt', 'r') as file:
-                self.bot_token = file.read().strip()
-        except FileNotFoundError:
-            print("Warning: bot_token.txt not found")
-            self.bot_token = None
+        """Load bot token from environment variable or fallback to file"""
+        self.bot_token = os.getenv('DISCORD_BOT_TOKEN')
+        
+        # Debug information
+        print(f"DISCORD_BOT_TOKEN from environment: {'Found' if self.bot_token else 'Not found'}")
+        
+        # Fallback to file if environment variable is not set
+        if not self.bot_token:
+            print("Warning: DISCORD_BOT_TOKEN environment variable is not set")
+            # Try to load from the old location as fallback
+            token_file = PROJECT_ROOT / 'bot_token.txt'
+            if token_file.exists():
+                print(f"Attempting to load bot token from {token_file}")
+                try:
+                    with open(token_file, 'r') as file:
+                        self.bot_token = file.read().strip()
+                        print("Successfully loaded bot token from file")
+                except Exception as e:
+                    print(f"Error loading bot token from file: {e}")
+            else:
+                print(f"Bot token file not found at {token_file}")
+                
+        if not self.bot_token:
+            print("ERROR: No bot token found. Please set DISCORD_BOT_TOKEN in your .env file")
     
     def _load_spotify_credentials(self):
-        """Read Spotify credentials from spotify_credentials.txt"""
-        try:
-            with open('../spotify_credentials.txt', 'r') as file:
-                self.spotify_credentials = json.load(file)
-        except FileNotFoundError:
-            print("Warning: spotify_credentials.txt not found")
-            self.spotify_credentials = None
-        except json.JSONDecodeError:
-            print("Warning: spotify_credentials.txt contains invalid JSON")
-            self.spotify_credentials = None
+        """Load Spotify credentials from environment variables or fallback to file"""
+        client_id = os.getenv('SPOTIFY_CLIENT_ID')
+        client_secret = os.getenv('SPOTIFY_CLIENT_SECRET')
+        
+        # Debug information
+        print(f"SPOTIFY_CLIENT_ID from environment: {'Found' if client_id else 'Not found'}")
+        print(f"SPOTIFY_CLIENT_SECRET from environment: {'Found' if client_secret else 'Not found'}")
+        
+        if client_id and client_secret:
+            self.spotify_credentials = {
+                'client_id': client_id,
+                'client_secret': client_secret
+            }
+        else:
+            print("Warning: SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET environment variables are not set")
+            # Try to load from the old location as fallback
+            creds_file = PROJECT_ROOT / 'spotify_credentials.txt'
+            if creds_file.exists():
+                print(f"Attempting to load Spotify credentials from {creds_file}")
+                try:
+                    with open(creds_file, 'r') as file:
+                        self.spotify_credentials = json.load(file)
+                        print("Successfully loaded Spotify credentials from file")
+                except Exception as e:
+                    print(f"Error loading Spotify credentials from file: {e}")
+                    self.spotify_credentials = None
+            else:
+                print(f"Spotify credentials file not found at {creds_file}")
+                self.spotify_credentials = None
     
     def _load_gemini_config(self):
         """Load Gemini API configuration from environment variables"""
         self.gemini_api_key = os.getenv('GEMINI_API_KEY')
+        
+        # Debug information
+        print(f"GEMINI_API_KEY from environment: {'Found' if self.gemini_api_key else 'Not found'}")
+        
         if not self.gemini_api_key:
             print("Warning: GEMINI_API_KEY environment variable is not set")
     
     def _load_brave_config(self):
         """Load Brave Search API configuration from environment variables"""
         self.brave_api_key = os.getenv('BRAVE_API_KEY')
+        
+        # Debug information
+        print(f"BRAVE_API_KEY from environment: {'Found' if self.brave_api_key else 'Not found'}")
+        
         if not self.brave_api_key:
             print("Warning: BRAVE_API_KEY environment variable is not set")
 
