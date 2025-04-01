@@ -193,6 +193,15 @@ async def search_web(search_term):
             for result in results:
                 title = result.get("title", "Untitled")
                 link = result.get("url")
+                
+                # Skip results from runescape.fandom.com and runescape.wiki
+                # but allow oldschool.runescape.wiki
+                if "runescape.fandom.com" in link or (
+                    "runescape.wiki" in link and "oldschool.runescape.wiki" not in link
+                ):
+                    print(f"Skipping excluded domain: {link}")
+                    continue
+                    
                 print(f"\nProcessing result: {title}\n{link}")
                 
                 text = extract_text_from_url(link)
