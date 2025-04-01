@@ -193,38 +193,39 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         # Check if we have no pages and should use previous context
         previous_context = ""
         
-        if not page_names and user_id and user_id in user_interactions:
-            # Check if previous interaction is within the time window
-            prev_interaction = user_interactions[user_id]
-            current_time = time.time()
-            
-            if (current_time - prev_interaction['timestamp']) <= INTERACTION_WINDOW:
-                # Use previous pages if available
-                page_names = prev_interaction['pages'].copy()  # Make a copy to avoid modifying the original
-                
-                # Add previous context to the conversation
-                previous_context = f"""
-                Your previous question: {prev_interaction['query']}
-                
-                My previous answer: {prev_interaction['response']}
-                
-                I'll use the same wiki pages to answer your follow-up question.
-                """
-                print(f"Using previous context for user {user_id}")
-                
-                # Try to identify additional wiki pages with the combined context
-                if previous_context:
-                    combined_query = f"{user_query}\n\nContext from previous conversation: {prev_interaction['query']}\n{prev_interaction['response']}"
-                    print(f"Trying to identify additional wiki pages with combined context")
-                    
-                    additional_pages = await identify_wiki_pages(combined_query, image_urls)
-                    
-                    # Add any new pages that aren't already in the list
-                    if additional_pages:
-                        for page in additional_pages:
-                            if page not in page_names:
-                                page_names.append(page)
-                                print(f"Added additional wiki page from context: {page}")
+        # # Code block for previous context and additional pages (currently disabled)
+        # if not page_names and user_id and user_id in user_interactions:
+        #     # Check if previous interaction is within the time window
+        #     prev_interaction = user_interactions[user_id]
+        #     current_time = time.time()
+        #
+        #     if (current_time - prev_interaction['timestamp']) <= INTERACTION_WINDOW:
+        #         # Use previous pages if available
+        #         page_names = prev_interaction['pages'].copy()  # Make a copy to avoid modifying the original
+        #
+        #         # Add previous context to the conversation
+        #         previous_context = f"""
+        #         Your previous question: {prev_interaction['query']}
+        #
+        #         My previous answer: {prev_interaction['response']}
+        #
+        #         I'll use the same wiki pages to answer your follow-up question.
+        #         """
+        #         print(f"Using previous context for user {user_id}")
+        #
+        #         # Try to identify additional wiki pages with the combined context
+        #         if previous_context:
+        #             combined_query = f"{user_query}\n\nContext from previous conversation: {prev_interaction['query']}\n{prev_interaction['response']}"
+        #             print(f"Trying to identify additional wiki pages with combined context")
+        #
+        #             additional_pages = await identify_wiki_pages(combined_query, image_urls)
+        #
+        #             # Add any new pages that aren't already in the list
+        #             if additional_pages:
+        #                 for page in additional_pages:
+        #                     if page not in page_names:
+        #                         page_names.append(page)
+        #                         print(f"Added additional wiki page from context: {page}")
         
         # Set up wiki_content and updated_page_names
         wiki_content = ""
