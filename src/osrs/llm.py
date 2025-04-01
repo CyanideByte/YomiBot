@@ -366,48 +366,114 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             
             return text
         
-        # Check if the model has already generated a "Sources:" section
-        # If found, cut off the response at that point
-        sources_index = response.find("\n\nSources:")
-        if sources_index == -1:
-            sources_index = response.find("\nSources:")
+        # Function to ensure all URLs in the Sources section have bullet points
+        def format_sources_section(text):
+            # Find the Sources section
+            sources_patterns = ["\n\nSources:", "\nSources:", "\n\nSource:", "\nSource:"]
+            sources_index = -1
+            matched_pattern = ""
+            
+            for pattern in sources_patterns:
+                if pattern in text:
+                    sources_index = text.find(pattern)
+                    matched_pattern = pattern
+                    break
+            
+            if sources_index == -1:
+                return text  # No Sources section found
+            
+            # Split the text into pre-sources and sources parts
+            pre_sources = text[:sources_index]
+            sources_part = text[sources_index:]
+            
+            # Split the sources part into lines
+            sources_lines = sources_part.split('\n')
+            formatted_sources_lines = [sources_lines[0]]  # Keep the "Sources:" header
+            
+            # Process each line after the header
+            for i in range(1, len(sources_lines)):
+                line = sources_lines[i].strip()
+                
+                # Skip empty lines
+                if not line:
+                    formatted_sources_lines.append('')
+                    continue
+                
+                # Check if the line contains a URL
+                if 'http' in line:
+                    # Check if the line already has a bullet point
+                    if not line.startswith('*') and not line.startswith('-') and not line.startswith('•'):
+                        # Add a bullet point with asterisk
+                        line = f"* {line}"
+                
+                formatted_sources_lines.append(line)
+            
+            # Combine everything back
+            return pre_sources + '\n'.join(formatted_sources_lines)
         
-        if sources_index != -1:
-            # Cut off the response at the Sources line
-            response = response[:sources_index].rstrip()
+        # Check if the model has already generated a "Sources:" or "Source:" section
+        has_sources_section = False
+        sources_patterns = ["\n\nSources:", "\nSources:", "\n\nSource:", "\nSource:"]
         
-        # Now add our own source citations
+        for pattern in sources_patterns:
+            if pattern in response:
+                has_sources_section = True
+                # Format the existing Sources section
+                response = format_sources_section(response)
+                break
+        
+        # Extract all URLs already in the response
+        existing_urls = []
+        url_pattern = re.compile(r'<(https?://[^\s<>"]+)>')
+        existing_urls = url_pattern.findall(response)
+        
+        # Now add our own source citations if there's no existing sources section
         sources_added = False
         
-        # Check if we have wiki pages
-        if updated_page_names:
-            sources = "\n\nSources:"
-            for page in updated_page_names:
-                # Clean the page name and add URL
-                clean_page = page.replace(' ', '_').strip('[]')
-                sources += f"\n- <https://oldschool.runescape.wiki/w/{clean_page}>"
-            
-            # Make sure the response with sources doesn't exceed Discord's limit
-            if len(response) + len(sources) <= 1900:
-                response += sources
-                sources_added = True
-        
-        # Check if we have web search results
-        elif "=== WEB SEARCH RESULTS ===" in wiki_content and not sources_added:
-            # Extract URLs from the web search results
-            source_urls = []
-            source_pattern = re.compile(r'Source: <(https?://[^>]+)>')
-            source_matches = source_pattern.findall(wiki_content)
-            
-            if source_matches:
+        if not has_sources_section:
+            # Check if we have wiki pages
+            if updated_page_names:
                 sources = "\n\nSources:"
-                for url in source_matches:
-                    sources += f"\n- <{url}>"
+                urls_to_add = []
+                
+                for page in updated_page_names:
+                    # Clean the page name and create URL
+                    clean_page = page.replace(' ', '_').strip('[]')
+                    url = f"https://oldschool.runescape.wiki/w/{clean_page}"
+                    
+                    # Only add URLs that aren't already in the response
+                    if url not in existing_urls:
+                        urls_to_add.append(url)
+                        sources += f"\n* <{url}>"  # Use asterisk instead of hyphen
                 
                 # Make sure the response with sources doesn't exceed Discord's limit
-                if len(response) + len(sources) <= 1900:
+                # Only add sources if we have new URLs to add
+                if urls_to_add and len(response) + len(sources) <= 1900:
                     response += sources
                     sources_added = True
+            
+            # Check if we have web search results
+            elif "=== WEB SEARCH RESULTS ===" in wiki_content and not sources_added:
+                # Extract URLs from the web search results
+                source_urls = []
+                source_pattern = re.compile(r'Source: <(https?://[^>]+)>')
+                source_matches = source_pattern.findall(wiki_content)
+                
+                if source_matches:
+                    urls_to_add = []
+                    sources = "\n\nSources:"
+                    
+                    for url in source_matches:
+                        # Only add URLs that aren't already in the response
+                        if url not in existing_urls:
+                            urls_to_add.append(url)
+                            sources += f"\n* <{url}>"  # Use asterisk instead of hyphen
+                    
+                    # Make sure the response with sources doesn't exceed Discord's limit
+                    # Only add sources if we have new URLs to add
+                    if urls_to_add and len(response) + len(sources) <= 1900:
+                        response += sources
+                        sources_added = True
         
         # Now clean all URLs in the response, regardless of whether sources were added
         
@@ -447,20 +513,25 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             response = clean_url_patterns(response, base_url, escaped_url)
         
         # Now find and clean all other URLs in the response
-        # Common URL patterns - improved to better handle special characters
-        url_pattern = re.compile(r'https?://[^\s<>"]+')
+        # More aggressive URL detection and wrapping
+        # This pattern matches URLs that are not already wrapped in angle brackets
+        # It handles URLs in various contexts, including in bullet points and after hyphens
+        unwrapped_url_pattern = re.compile(r'(?<!\<)(https?://[^\s<>"]+)(?!\>)')
         
-        # Find all URLs in the response
+        # Replace all unwrapped URLs with wrapped versions
+        response = unwrapped_url_pattern.sub(r'<\1>', response)
+        
+        # Additional pass to handle any URLs that might have been missed
+        # This is a more targeted approach for specific contexts
+        url_pattern = re.compile(r'https?://[^\s<>"]+')
         all_urls = url_pattern.findall(response)
         
-        # Clean each URL that's not already properly formatted
         for url in all_urls:
-            # More precise check for properly formatted URLs with angle brackets
+            # Skip URLs that are already properly formatted
             if f"<{url}>" in response:
                 continue
                 
             # Skip URLs that are part of already properly formatted URLs
-            # This prevents partial URL matching issues
             is_part_of_formatted_url = False
             for formatted_url in [f"<{u}>" for u in all_urls if len(u) > len(url)]:
                 if formatted_url in response and url in formatted_url:
@@ -470,7 +541,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             if is_part_of_formatted_url:
                 continue
                 
-            # Clean the URL
+            # Clean the URL using our existing function
             response = clean_url_patterns(response, url)
         
         return response[:1900] + "\n\n(Response length exceeded)" if len(response) > 1900 else response
