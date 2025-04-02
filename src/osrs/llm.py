@@ -351,7 +351,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         
         Provide a response following these specific formatting rules:
         1. Start with a **Section Header**
-        2. Use * for list items (not bullet points)
+        2. Use - for list items (not bullet points)
         3. Bold ONLY:
            - Item names (e.g., **Abyssal whip**)
            - Monster/boss names (e.g., **Abyssal demon**)
@@ -455,7 +455,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
                     # Check if the line already has a bullet point
                     if not line.startswith('*') and not line.startswith('-') and not line.startswith('•'):
                         # Add a bullet point with asterisk
-                        line = f"* {line}"
+                        line = f"- {line}"
                 
                 formatted_sources_lines.append(line)
             
@@ -472,8 +472,8 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
                 # Format the existing Sources section
                 response = format_sources_section(response)
                 break
-        
-        # Extract all URLs already in the response
+                
+        # Extract all URLs already in the response before potentially adding sources
         existing_urls = []
         url_pattern = re.compile(r'<(https?://[^\s<>"]+)>')
         existing_urls = url_pattern.findall(response)
@@ -495,7 +495,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
                     # Only add URLs that aren't already in the response
                     if url not in existing_urls:
                         urls_to_add.append(url)
-                        sources += f"\n* <{url}>"  # Use asterisk instead of hyphen
+                        sources += f"\n- <{url}>"  # Use hyphen for bullet points
                 
                 # Make sure the response with sources doesn't exceed Discord's limit
                 # Only add sources if we have new URLs to add
@@ -518,7 +518,7 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
                         # Only add URLs that aren't already in the response
                         if url not in existing_urls:
                             urls_to_add.append(url)
-                            sources += f"\n* <{url}>"  # Use asterisk instead of hyphen
+                            sources += f"\n- <{url}>"  # Use hyphen for bullet points
                     
                     # Make sure the response with sources doesn't exceed Discord's limit
                     # Only add sources if we have new URLs to add
@@ -621,10 +621,17 @@ def register_commands(bot):
             return
 
         # Let the user know we're processing their request and store the message object
+        # Use reference parameter to make it a reply to the user's message
         if image_urls:
-            processing_msg = await ctx.send("Processing your image(s) and request, this may take a moment...")
+            processing_msg = await ctx.send(
+                "Processing your image(s) and request, this may take a moment...",
+                reference=ctx.message
+            )
         else:
-            processing_msg = await ctx.send("Processing your request, this may take a moment...")
+            processing_msg = await ctx.send(
+                "Processing your request, this may take a moment...",
+                reference=ctx.message
+            )
 
         try:
             # Get guild members to check if any are mentioned in the query
