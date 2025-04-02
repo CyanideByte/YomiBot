@@ -95,38 +95,7 @@ def setup_competition_commands(bot):
         boss_metrics = [transform_metric_name(comp['metric']) for comp in boss_competitions]
         await ctx.send(f"Last six bosses: {', '.join(boss_metrics)}")
     
-    @bot.command(name='player', aliases=['lookup'], help='Displays information about a player.')
-    async def player(ctx, username=None):
-        """Command to display player information from Wise Old Man."""
-        if username is None:
-            await ctx.send("Please provide a username. Example: !player zezima")
-            return
-        
-        player_data = fetch_player_details(username)
-        if player_data:
-            # Get formatted data and split into lines
-            formatted_data = format_player_data(player_data).split('\n')
-            current_chunk = []
-            current_length = 0
-
-            for line in formatted_data:
-                # Account for the length of line, newline, and Discord markdown (```\n and \n```)
-                line_length = len(line) + 1  # +1 for newline
-                if current_length + line_length > 1900:
-                    # Send current chunk if adding this line would exceed limit
-                    if current_chunk:
-                        await ctx.send(f"```\n{'\n'.join(current_chunk)}\n```")
-                        current_chunk = []
-                        current_length = 0
-                
-                current_chunk.append(line)
-                current_length += line_length
-
-            # Send any remaining lines
-            if current_chunk:
-                await ctx.send(f"```\n{'\n'.join(current_chunk)}\n```")
-        else:
-            await ctx.send(f"Could not find player '{username}' or an error occurred.")
+    # Player command has been moved to llm.py as a roast command
 
 def get_guild_members():
     """
@@ -177,6 +146,9 @@ def fetch_player_details(username):
     """
     Fetch player details from the WiseOldMan API with caching
     """
+    # Replace spaces with underscores for API request
+    api_username = username.replace(' ', '_')
+    
     cache_path = get_player_cache_path(username)
     current_time = time.time()
     
@@ -197,7 +169,7 @@ def fetch_player_details(username):
             print(f"Error reading cache for {username}: {e}")
     
     # If no valid cache exists, fetch from API
-    url = f"https://api.wiseoldman.net/v2/players/{username}"
+    url = f"https://api.wiseoldman.net/v2/players/{api_username}"
     headers = {
         "Content-Type": "application/json"
     }
@@ -245,8 +217,10 @@ def format_player_data(player_data):
         output.append("-" * 40)
         
         for skill_name, skill_info in skills_data.items():
-            if skill_info['level'] > 0:  # Only show skills with levels
-                output.append(f"{skill_name.capitalize():<15} {skill_info['level']:<10} {skill_info['experience']:<15}")
+            # Show all skills, and convert -1 values to 0
+            level = skill_info['level'] if skill_info['level'] != -1 else 0
+            experience = skill_info['experience'] if skill_info['experience'] != -1 else 0
+            output.append(f"{skill_name.capitalize():<15} {level:<10} {experience:<15}")
         
         output.append("")
         
@@ -258,12 +232,12 @@ def format_player_data(player_data):
         output.append("-" * 35)
         
         for boss_name, boss_info in bosses_data.items():
-            # Only show bosses with kills
-            if boss_info['kills'] > 0:
-                boss_display_name = boss_name.replace('_', ' ').title()
-                if boss_display_name == "Chambers Of Xeric Challenge Mode":
-                    boss_display_name = "Chambers Of Xeric (CM)"
-                output.append(f"{boss_display_name:<25} {boss_info['kills']:<10}")
+            # Show all bosses, and convert -1 values to 0
+            kills = boss_info['kills'] if boss_info['kills'] != -1 else 0
+            boss_display_name = boss_name.replace('_', ' ').title()
+            if boss_display_name == "Chambers Of Xeric Challenge Mode":
+                boss_display_name = "Chambers Of Xeric (CM)"
+            output.append(f"{boss_display_name:<25} {kills:<10}")
     else:
         output.append("No skill or boss data available")
     

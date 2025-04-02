@@ -3,6 +3,7 @@ import aiohttp
 from PIL import Image
 import io
 import time
+import datetime
 import google.generativeai as genai
 from config.config import config
 
@@ -147,8 +148,13 @@ async def generate_search_term(query):
     try:
         model = genai.GenerativeModel(config.gemini_model)
         
+        # Get the current local date
+        current_date = datetime.datetime.now().strftime("%B %d, %Y")
+        
         prompt = f"""
         You are an assistant that helps generate effective search terms for Old School RuneScape (OSRS) related queries.
+        
+        Today's date is {current_date}.
         
         Given the following user query, determine if additional information is needed to provide a complete answer.
         
@@ -601,6 +607,53 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         print(f"Error processing query: {e}")
         return f"Error processing your query: {str(e)}"
 
+async def roast_player(player_data):
+    """
+    Generate a humorous roast for a player based on their stats
+    """
+    if not config.gemini_api_key:
+        return "Sorry, the player roast feature is not available because the Gemini API key is not set."
+    
+    try:
+        model = genai.GenerativeModel(config.gemini_model)
+        
+        # Format player data for context
+        player_context = format_player_data(player_data)
+        player_name = player_data.get('displayName', 'Unknown player')
+        
+        prompt = f"""
+        You are a witty Old School RuneScape roast generator. Your task is to create a humorous, slightly sarcastic roast of a player based on their stats.
+        
+        Rules for the roast:
+        1. Focus ONLY on the player's low skills, low boss kill counts, or high counts in easy/noob bosses or skills
+        2. The roast should be ONE concise paragraph (not bullet points)
+        3. Be witty and humorous, but not overly mean
+        4. Mention specific skills or bosses from their data that are notably low or "noob-like"
+        5. If they have high kill counts in easy bosses but low counts in hard bosses, definitely mention that
+        6. If they have high levels in easy skills but low levels in challenging skills, point that out
+        7. Keep the tone light and playful
+        
+        Player Name: {player_name}
+        
+        Player Stats:
+        {player_context}
+        
+        Generate a single paragraph roast focusing on the player's noob-like stats or achievements.
+        """
+        
+        response = await asyncio.to_thread(
+            lambda: model.generate_content(prompt).text
+        )
+        
+        # Format the response for Discord
+        formatted_response = f"**Roast of {player_name}**\n\n{response}"
+        
+        return formatted_response
+        
+    except Exception as e:
+        print(f"Error generating player roast: {e}")
+        return f"Error generating roast: {str(e)}"
+
 # Discord command registration - depends on wiki functionality
 def register_commands(bot):
     @bot.command(name='askyomi', aliases=['yomi', 'ask'])
@@ -664,3 +717,29 @@ def register_commands(bot):
         except Exception as e:
             # If there was an error, edit the processing message with the error
             await processing_msg.edit(content=f"Error processing your request: {str(e)}")
+            
+    @bot.command(name='roast', help='Roasts a player based on their OSRS stats.')
+    async def roast(ctx, *, username=None):
+        """Command to roast a player based on their OSRS stats."""
+        if username is None:
+            await ctx.send("Please provide a username to roast. Example: !roast zezima")
+            return
+        
+        # Let the user know we're processing their request
+        processing_msg = await ctx.send(
+            f"Preparing a roast for {username}, this may take a moment...",
+            reference=ctx.message
+        )
+        
+        try:
+            # Fetch player details
+            player_data = fetch_player_details(username)
+            
+            if player_data:
+                # Generate the roast
+                roast_response = await roast_player(player_data)
+                await processing_msg.edit(content=roast_response)
+            else:
+                await processing_msg.edit(content=f"Could not find player '{username}' or an error occurred.")
+        except Exception as e:
+            await processing_msg.edit(content=f"Error roasting player: {str(e)}")
