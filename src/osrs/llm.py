@@ -620,11 +620,11 @@ def register_commands(bot):
             await ctx.send("Please provide a question or attach an image to analyze.")
             return
 
-        # Let the user know we're processing their request
+        # Let the user know we're processing their request and store the message object
         if image_urls:
-            await ctx.send("Processing your image(s) and request, this may take a moment...")
+            processing_msg = await ctx.send("Processing your image(s) and request, this may take a moment...")
         else:
-            await ctx.send("Processing your request, this may take a moment...")
+            processing_msg = await ctx.send("Processing your request, this may take a moment...")
 
         try:
             # Get guild members to check if any are mentioned in the query
@@ -648,11 +648,12 @@ def register_commands(bot):
                 if player_data_list:
                     #await ctx.send(f"Found {len(player_data_list)} player(s) mentioned in your query. Processing...")
                     response = await process_player_data_query(user_query, player_data_list, image_urls)
-                    await ctx.send(response)
+                    await processing_msg.edit(content=response)
                     return
             
             # If no members were found or player data couldn't be fetched, use the regular process
             response = await process_user_query(user_query or "What is this OSRS item?", image_urls, user_id)
-            await ctx.send(response)
+            await processing_msg.edit(content=response)
         except Exception as e:
-            await ctx.send(f"Error processing your request: {str(e)}")
+            # If there was an error, edit the processing message with the error
+            await processing_msg.edit(content=f"Error processing your request: {str(e)}")

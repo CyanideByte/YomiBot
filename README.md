@@ -147,7 +147,8 @@ src/
 ├── osrs/                  # OSRS Wiki integration
 │   ├── __init__.py
 │   ├── llm.py
-│   └── wiki.py
+│   ├── wiki.py
+│   └── search.py
 ├── wiseoldman/           # Wise Old Man API integration
 │   ├── __init__.py
 │   └── tracker.py
