@@ -3,6 +3,7 @@ import json
 import os
 import time
 from utils.helpers import transform_metric_name
+from config.config import PROJECT_ROOT
 
 # Replace with your clan's group ID
 GROUP_ID = "3773"
@@ -10,9 +11,8 @@ BASE_URL = "https://api.wiseoldman.net/v2/groups"
 
 def ensure_cache_directories():
     """Ensure the cache directories exist"""
-    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    wiki_cache = os.path.join(root_dir, 'cache', 'wiki')
-    wom_cache = os.path.join(root_dir, 'cache', 'wiseoldman')
+    wiki_cache = os.path.join(PROJECT_ROOT, 'cache', 'wiki')
+    wom_cache = os.path.join(PROJECT_ROOT, 'cache', 'wiseoldman')
     
     # Create cache directories if they don't exist
     os.makedirs(wiki_cache, exist_ok=True)
@@ -139,8 +139,7 @@ def get_player_cache_path(username):
     # Normalize the username - lowercase and replace spaces with underscores
     safe_name = username.lower().replace(' ', '_')
     # Use project root directory for cache folder
-    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    return os.path.join(root_dir, 'cache', 'wiseoldman', f"{safe_name}.json")
+    return os.path.join(PROJECT_ROOT, 'cache', 'wiseoldman', f"{safe_name}.json")
 
 def fetch_player_details(username):
     """

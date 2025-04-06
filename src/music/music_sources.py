@@ -3,8 +3,14 @@ import asyncio
 import yt_dlp as youtube_dl
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+import os
+from pathlib import Path
+from config.config import config, PROJECT_ROOT
 
-from config.config import config
+# Check if YouTube cookies file exists
+youtube_cookies_path = PROJECT_ROOT / 'youtube_cookies.txt'
+print(f"YouTube cookies file: {'Found' if youtube_cookies_path.exists() else 'Not found'} at {youtube_cookies_path}")
+from config.config import config, PROJECT_ROOT
 
 # YouTube DL configuration
 ytdl_format_options = {
@@ -19,8 +25,13 @@ ytdl_format_options = {
     'no_warnings': True,
     'default_search': 'auto',
     'source_address': '0.0.0.0',
-    'cookiefile': 'youtube_cookies.txt',
+    'cookiefile': str(PROJECT_ROOT / 'youtube_cookies.txt'),
+    'verbose': True,  # Enable verbose output for better error messages
 }
+
+# Print a warning if cookies file doesn't exist
+if not youtube_cookies_path.exists():
+    print(f"WARNING: YouTube cookies file not found at {youtube_cookies_path}. Some videos may require authentication.")
 
 ffmpeg_options = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1 -reconnect_on_http_error 404',
@@ -69,6 +80,10 @@ class YTDLSource(discord.PCMVolumeTransformer):
             else:
                 if 'Sign in to confirm your age' in str(e):
                     raise Exception("This video requires age confirmation and cannot be played.")
+                elif 'Sign in to confirm you' in str(e) or 'cookies' in str(e).lower():
+                    cookies_path = PROJECT_ROOT / 'youtube_cookies.txt'
+                    cookies_exists = cookies_path.exists()
+                    raise Exception(f"Authentication required. YouTube cookies file {'exists' if cookies_exists else 'not found'} at {cookies_path}. Please check the cookies file.")
                 else:
                     raise Exception(f"An error occurred: {str(e)}")
         except Exception as general_e:

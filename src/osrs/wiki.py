@@ -4,6 +4,7 @@ import os
 import os.path
 import json
 import time
+from config.config import PROJECT_ROOT
 
 
 # Helper functions for OSRS Wiki integration
@@ -136,8 +137,7 @@ def get_cache_path(page_name):
     """Get the cache file path for a given page name"""
     safe_name = page_name.replace('/', '_').replace('\\', '_')
     # Use project root directory for cache folder
-    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    return os.path.join(root_dir, 'cache', 'wiki', f"{safe_name}.json")
+    return os.path.join(PROJECT_ROOT, 'cache', 'wiki', f"{safe_name}.json")
 
 def load_cached_page(page_name):
     """Load a page from cache if it exists and is valid"""
