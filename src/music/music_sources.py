@@ -26,7 +26,6 @@ ytdl_format_options = {
     'default_search': 'auto',
     'source_address': '0.0.0.0',
     'cookiefile': str(PROJECT_ROOT / 'youtube_cookies.txt'),
-    'verbose': True,  # Enable verbose output for better error messages
 }
 
 # Print a warning if cookies file doesn't exist

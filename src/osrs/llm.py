@@ -24,20 +24,28 @@ if config.gemini_api_key:
     genai.configure(api_key=config.gemini_api_key)
 
 # System prompt for Gemini
-SYSTEM_PROMPT = """
-You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS using information provided from the OSRS Wiki.
-If asked about yourself, you are YomiBot, an assistant created by CyanideByte for clan Mesa.
+# Unified system prompt for both player data and wiki information
+UNIFIED_SYSTEM_PROMPT = """
+You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS using:
+1. Player data from WiseOldMan when provided
+2. OSRS Wiki information when available
+3. Web search results when necessary
 
 Content Rules:
-1. Use only the provided wiki information and web search results when possible.
-2. If you cannot provide an answer with the information given, state that clearly, and then provide an answer based on your own knowledge.
-3. Prioritize key information the player needs
-4. Format information clearly and consistently
-5. Break information into clear sections
-6. Keep answers concise (under 2000 characters)
+1. Use only the provided information sources when possible
+2. If player data is available, analyze it thoroughly to answer player-specific questions
+3. If wiki/web information is available, use it to answer game mechanic questions
+4. When appropriate, combine player data with wiki information for comprehensive answers
+5. Prioritize key information the player needs
+6. Format information clearly and consistently
+7. Break information into clear sections
+8. Keep answers concise (under 2000 characters)
+9. ALWAYS include a "Sources:" section at the end of your response with all source URLs
 
 Remember: Create clear, easy-to-read responses that focus on the key information.
 """
+
+# Legacy system prompt removed - now using UNIFIED_SYSTEM_PROMPT
 
 async def fetch_image(image_url: str) -> Image.Image:
     """Download and convert image from URL to PIL Image"""
@@ -219,63 +227,154 @@ async def generate_search_term(query):
     except Exception as e:
         print(f"Error generating search term: {e}")
         return query  # Fall back to original query if there's an error
+# In-memory cache with TTL
+query_cache = {}
 
-async def process_player_data_query(user_query: str, player_data_list: list, image_urls: list[str] = None) -> str:
-    """Process a user query with player data using Gemini"""
-    if not config.gemini_api_key:
-        return "Sorry, the OSRS player query assistant is not available because the Gemini API key is not set."
+async def get_cached_or_fetch(cache_key, fetch_func, ttl_seconds=300):
+    """Get data from cache or fetch it if not available or expired"""
+    current_time = time.time()
     
+    # Check if in cache and not expired
+    if cache_key in query_cache:
+        entry = query_cache[cache_key]
+        if current_time - entry['timestamp'] < ttl_seconds:
+            print(f"Cache hit for key: {cache_key}")
+            return entry['data']
+    
+    # If not in cache or expired, fetch fresh data
+    print(f"Cache miss for key: {cache_key}, fetching fresh data")
+    data = await fetch_func()
+    
+    # Update cache
+    query_cache[cache_key] = {
+        'data': data,
+        'timestamp': current_time
+    }
+    
+    return data
+
+# Removed unused functions that were replaced by process_unified_query
+
+async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
+    """
+    Determine if a query can be answered using only player data without wiki/web searches
+    
+    Args:
+        user_query: The user's query text
+        player_data_list: List of player data objects
+        
+    Returns:
+        Boolean indicating if the query can be answered with player data only
+    """
+    if not player_data_list or len(player_data_list) == 0:
+        return False
+        
     try:
-        model = genai.GenerativeModel(config.gemini_model)
+        # If we have player data, use Gemini to determine if it's a player-only query
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        # Format player data for context
-        player_context = ""
+        # Create a simplified version of the player data for analysis
+        simplified_data = []
         for player_data in player_data_list:
-            player_name = player_data.get('displayName', 'Unknown player')
-            player_context += f"\n===== {player_name} DATA =====\n"
-            player_context += format_player_data(player_data)
-            player_context += "\n\n"
-        
+            player_name = player_data.get('displayName', 'Unknown')
+            simplified_data.append({
+                'name': player_name,
+                'data_available': 'skills and boss kill counts'
+            })
+            
         prompt = f"""
-        You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS players using the provided player data.
+        Analyze this query about OSRS players and determine if it can be answered using ONLY player stats and boss kill counts, without needing any wiki information or web searches.
         
-        Formatting Rules:
-        1. Use - for bullet points (they format correctly in Discord)
-        2. Bold important information with **text**, such as:
-           - Player names (e.g., **PlayerName**)
-           - Boss or skill names
-        3. Keep answers concise (under 2000 characters)
-        4. Break information into clear sections if needed
+        Query: "{user_query}"
         
-        User Query: {user_query}
+        Available player data: {simplified_data}
         
-        Player Data:
-        {player_context}
+        Examples of player-only queries:
+        - "Who has the highest Slayer level?"
+        - "What's CyanideByte's highest boss KC?"
+        - "Compare the Zulrah kill counts of these players"
+        - "Who has more ToB KC?"
+        - "Which player has the highest total level?"
+        - "Who is better at PvM based on boss KCs?"
         
-        Provide a helpful response based on the player data and the user's query.
+        Examples of queries that need wiki/web information:
+        - "What's the best gear for Zulrah?"
+        - "How do I complete Dragon Slayer 2?"
+        - "What are the drop rates for Vorkath?"
+        - "When was Chambers of Xeric released?"
+        
+        Respond with ONLY "YES" if the query can be answered with player data alone, or "NO" if wiki/web information is needed.
         """
         
+        # Use a shorter timeout for this decision to avoid adding too much latency
         response = await asyncio.to_thread(
-            lambda: model.generate_content(prompt).text
+            lambda: model.generate_content(prompt).text.strip()
         )
         
-        return response
+        is_player_only = response.upper() == "YES"
+        print(f"Query analysis result: {response} (is_player_only={is_player_only})")
+        return is_player_only
         
     except Exception as e:
-        print(f"Error processing player data query: {e}")
-        return f"Error processing your player data query: {str(e)}"
+        print(f"Error determining if player-only query: {e}")
+        # If there's an error, default to False (safer to get more information)
+        return False
 
-async def process_user_query(user_query: str, image_urls: list[str] = None, user_id: str = None) -> str:
-    """Process a user query about OSRS using Gemini and the OSRS Wiki, optionally with images"""
-    if not config.gemini_api_key:
-        return "Sorry, the OSRS Wiki assistant is not available because the Gemini API key is not set."
+async def identify_and_fetch_players(user_query: str, mentioned_players=None, requester_name=None):
+    """Identify mentioned players in the query and fetch their data"""
+    player_data_list = []
+    player_sources = []
+    
+    try:
+        # If mentioned_players is already provided, use that
+        if mentioned_players:
+            for player_name in mentioned_players:
+                player_data = fetch_player_details(player_name)
+                if player_data:
+                    player_data_list.append(player_data)
+                    
+                    # Add to sources
+                    player_url = f"https://wiseoldman.net/players/{player_name.lower().replace(' ', '_')}"
+                    player_sources.append({
+                        'type': 'wiseoldman',
+                        'name': player_name,
+                        'url': player_url
+                    })
+            return player_data_list, player_sources
         
+        # Otherwise, identify players from the query
+        guild_members = get_guild_members()
+        identified_players = await identify_mentioned_players(user_query, guild_members, requester_name)
+        
+        for player_name in identified_players:
+            player_data = fetch_player_details(player_name)
+            if player_data:
+                player_data_list.append(player_data)
+                
+                # Add to sources
+                player_url = f"https://wiseoldman.net/players/{player_name.lower().replace(' ', '_')}"
+                player_sources.append({
+                    'type': 'wiseoldman',
+                    'name': player_name,
+                    'url': player_url
+                })
+                
+        return player_data_list, player_sources
+    except Exception as e:
+        print(f"Error identifying and fetching players: {e}")
+        return [], []
+
+async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None):
+    """Identify and fetch wiki pages and web search results"""
+    wiki_content = ""
+    wiki_sources = []
+    web_sources = []
+    
     try:
         # Identify relevant wiki pages, potentially using image analysis
         page_names = await identify_wiki_pages(user_query, image_urls)
         
         # Set up variables for content and page tracking
-        wiki_content = ""
         updated_page_names = []
         wiki_page_names = page_names.copy()  # Make a copy to avoid modifying the original
         non_wiki_sources = []
@@ -319,10 +418,16 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             
             # Update page_names with redirected names for correct source URLs
             for page in wiki_page_names:
-                if page in redirects:
-                    updated_page_names.append(redirects[page])
-                else:
-                    updated_page_names.append(page)
+                redirected_page = redirects.get(page, page)
+                updated_page_names.append(redirected_page)
+                
+                # Add to sources
+                wiki_url = f"https://oldschool.runescape.wiki/w/{redirected_page.replace(' ', '_')}"
+                wiki_sources.append({
+                    'type': 'wiki',
+                    'name': redirected_page,
+                    'url': wiki_url
+                })
             
             print(f"Retrieved content from {len(wiki_page_names)} wiki pages")
             if redirects:
@@ -333,6 +438,15 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             print(f"Adding {len(non_wiki_sources)} non-wiki sources to context")
             non_wiki_content = format_search_results(non_wiki_sources)
             wiki_content += non_wiki_content
+            
+            # Add to sources
+            for result in non_wiki_sources:
+                if 'url' in result:
+                    web_sources.append({
+                        'type': 'web',
+                        'title': result.get('title', 'Web Source'),
+                        'url': result['url']
+                    })
         
         # If we have no content at all, perform a full web search
         if not wiki_content:
@@ -344,23 +458,262 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             # Format the results for use as context
             wiki_content = format_search_results(search_results)
             print("Using web search results as context")
+            
+            # Add to sources
+            for result in search_results:
+                if 'url' in result:
+                    web_sources.append({
+                        'type': 'web',
+                        'title': result.get('title', 'Web Source'),
+                        'url': result['url']
+                    })
+        
+        return wiki_content, updated_page_names, wiki_sources, web_sources
+    except Exception as e:
+        print(f"Error identifying and fetching wiki pages: {e}")
+        return "", [], [], []
+
+def collect_source_urls(player_sources, wiki_sources, web_sources):
+    """Collect all source URLs into a single list"""
+    all_sources = []
+    
+    # Add player sources
+    for source in player_sources:
+        all_sources.append(source['url'])
+    
+    # Add wiki sources
+    for source in wiki_sources:
+        all_sources.append(source['url'])
+    
+    # Add web sources
+    for source in web_sources:
+        all_sources.append(source['url'])
+    
+    return all_sources
+
+def build_sources_section(player_sources, wiki_sources, web_sources):
+    """Build a sources section for the response"""
+    sources = collect_source_urls(player_sources, wiki_sources, web_sources)
+    
+    if not sources:
+        return ""
+        
+    sources_section = "\n\nSources:"
+    for url in sources:
+        # Ensure consistent formatting without prefixes like "Player data:"
+        clean_url = url.split("://")[-1] if "://" in url else url
+        sources_section += f"\n- <https://{clean_url}>"
+        
+    return sources_section
+
+# Simplified ensure_all_sources_included function
+def ensure_all_sources_included(response, player_sources, wiki_sources, web_sources):
+    """Ensure all sources are included in the response using a robust method."""
+    import re
+
+    # 1. Collect all expected source URLs
+    all_sources = collect_source_urls(player_sources, wiki_sources, web_sources)
+    unique_sources = sorted(list(set(all_sources))) # Ensure uniqueness and consistent order
+
+    # 2. If no sources expected, return the response as is
+    if not unique_sources:
+        return response
+
+    # 3. Define patterns
+    url_pattern = re.compile(r'<(https?://[^\s<>"]+)>')
+    # Pattern to find "Sources:" or "Source:" header, case-insensitive, possibly preceded by newlines/whitespace
+    sources_header_pattern = re.compile(r'^([ \t]*\n)?(Sources?):', re.MULTILINE | re.IGNORECASE)
+
+    # 4. Try to find an existing "Sources:" section
+    header_match = sources_header_pattern.search(response)
+    existing_section_valid_and_complete = False
+
+    if header_match:
+        sources_start_index = header_match.start()
+        # Extract text from the header onwards
+        sources_section_text = response[sources_start_index:]
+        # Find all URLs within this potential section
+        existing_urls = sorted(list(set(url_pattern.findall(sources_section_text))))
+
+        # Check if the existing section contains exactly the set of expected unique URLs
+        if set(existing_urls) == set(unique_sources):
+            existing_section_valid_and_complete = True
+            print("Existing Sources section is valid and complete.")
+        else:
+            print(f"Existing Sources section found but is incomplete or incorrect. Expected: {unique_sources}, Found: {existing_urls}")
+    else:
+        print("No existing Sources section found.")
+        # Check if URLs exist *without* a header, indicating a malformed response from LLM
+        urls_without_header = url_pattern.findall(response)
+        if urls_without_header:
+            print("Found URLs without a Sources header, indicating LLM ignored instructions.")
+
+
+    # 5. If section is valid and complete, return (potentially after minor cleanup)
+    if existing_section_valid_and_complete:
+        # Minor cleanup: remove extra newlines within the section
+        sources_start_index = header_match.start()
+        pre_sources = response[:sources_start_index]
+        sources_part = response[sources_start_index:]
+        # Replace multiple consecutive newlines before a source item with a single newline
+        sources_part = re.sub(r'\n\s*\n(- <https?://)', r'\n\1', sources_part)
+        # Ensure the header itself is preceded by exactly two newlines
+        pre_sources = pre_sources.rstrip() + "\n\n"
+        # Ensure the header line itself is just "Sources:"
+        sources_part = re.sub(r'^(Sources?):', 'Sources:', sources_part.strip(), count=1, flags=re.IGNORECASE)
+
+        return pre_sources + sources_part
+
+    # 6. Otherwise (section missing, incomplete, or malformed), rebuild the sources section
+    print("Rebuilding Sources section.")
+    response_base = response # Start with the original response
+
+    # If a header existed, strip everything from the header onwards
+    if header_match:
+        response_base = response[:header_match.start()].rstrip()
+    else:
+        # If no header, try to remove trailing lines that look like source URLs
+        lines = response.rstrip().split('\n')
+        last_non_url_line_index = -1
+        # Find the index of the last line that does *not* look like a source URL line
+        for i in range(len(lines) - 1, -1, -1):
+             # A line is likely a source URL if it starts with '- <http' or just '<http' after stripping whitespace
+            line_content = lines[i].strip()
+            if not (line_content.startswith('- <http') or line_content.startswith('<http')):
+                last_non_url_line_index = i
+                break
+
+        # If we found loose URLs at the end (i.e., the last line was a URL line)
+        if last_non_url_line_index < len(lines) - 1:
+            print(f"Stripping trailing URL-like lines from index {last_non_url_line_index + 1}")
+            # Take lines up to and including the last non-URL line
+            response_base = '\n'.join(lines[:last_non_url_line_index + 1]).rstrip()
+        else:
+            # No trailing URL lines found, keep the response as is
+             response_base = response.rstrip()
+
+
+    # Build the new section string
+    new_sources_section = "\n\nSources:"
+    for url in unique_sources:
+        new_sources_section += f"\n- <{url}>"
+
+    # Combine base response with the new section
+    final_response = response_base + new_sources_section
+
+    return final_response
+
+async def process_unified_query(
+    user_query: str,
+    user_id: str = None,
+    image_urls: list[str] = None,
+    mentioned_players: list[str] = None,
+    requester_name: str = None
+) -> str:
+    """
+    Unified function to process queries using both player data and wiki/web information
+    
+    Args:
+        user_query: The user's query text
+        user_id: Optional user ID for tracking interactions
+        image_urls: Optional list of image URLs to analyze
+        mentioned_players: Optional list of already identified player names
+        requester_name: Optional name of the user making the request
+        
+    Returns:
+        Formatted response text
+    """
+    if not config.gemini_api_key:
+        return "Sorry, the OSRS assistant is not available because the Gemini API key is not set."
+    
+    try:
+        # Start performance tracking
+        start_time = time.time()
+        
+        # First, identify and fetch player data
+        player_task = identify_and_fetch_players(user_query, mentioned_players, requester_name)
+        player_data_list, player_sources = await player_task
+        
+        # Determine if this is a player-only query
+        is_player_only = False
+        if player_data_list:
+            is_player_only = await is_player_only_query(user_query, player_data_list)
+            print(f"Query determined to be player-only: {is_player_only}")
+        
+        # Only fetch wiki/web content if this is not a player-only query
+        if not is_player_only:
+            print("Fetching wiki and web content...")
+            wiki_task = identify_and_fetch_wiki_pages(user_query, image_urls)
+            wiki_content, updated_page_names, wiki_sources, web_sources = await wiki_task
+        else:
+            print("Skipping wiki and web searches for player-only query")
+            wiki_content = ""
+            updated_page_names = []
+            wiki_sources = []
+            web_sources = []
+        
+        # Log performance for data fetching
+        data_fetch_time = time.time() - start_time
+        print(f"Data fetching completed in {data_fetch_time:.2f} seconds")
+        
+        # Format player data for context if available
+        player_context = ""
+        if player_data_list:
+            for player_data in player_data_list:
+                player_name = player_data.get('displayName', 'Unknown player')
+                player_context += f"\n===== {player_name} DATA =====\n"
+                player_context += format_player_data(player_data)
+                player_context += "\n\n"
+            print(f"Formatted data for {len(player_data_list)} players")
         
         # Use text-based approach for response formatting
-        # Function calling works for page identification but not for response formatting
         model = genai.GenerativeModel(config.gemini_model)
         
-        prompt = f"""
-        {SYSTEM_PROMPT}
+        # Construct the prompt based on available data
+        if is_player_only:
+            # For player-only queries, use a more focused prompt
+            prompt = f"""
+            You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS players using the provided player data.
+            
+            User Query: {user_query}
+            
+            Player Data:
+            {player_context}
+            
+            This query can be answered using ONLY the player data provided. Do not speculate about information not present in the player data.
+            """
+        else:
+            # For queries that need both data sources, use the unified prompt
+            prompt = f"""
+            {UNIFIED_SYSTEM_PROMPT}
+            
+            User Query: {user_query}
+            """
+            
+            # Add player data if available
+            if player_context:
+                prompt += f"""
+                
+                Player Data:
+                {player_context}
+                """
+            
+            # Add wiki/web content if available
+            if wiki_content:
+                prompt += f"""
+                
+                OSRS Wiki and Web Information:
+                {wiki_content}
+                """
         
-        User Query: {user_query}
-        
-        OSRS Wiki Information:
-        {wiki_content}
+        # Add formatting instructions
+        prompt += """
         
         Provide a response following these specific formatting rules:
         1. Start with a **Section Header**
         2. Use - for list items (not bullet points)
         3. Bold ONLY:
+           - Player names (e.g., **PlayerName**)
            - Item names (e.g., **Abyssal whip**)
            - Monster/boss names (e.g., **Abyssal demon**)
            - Location names (e.g., **Wilderness**)
@@ -370,28 +723,37 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
            - Prices
            - Combat stats
            - Other numerical values
-        5. Include sources at the end using the URL format: https://oldschool.runescape.wiki/w/[page_name]
-           - Start your sources section with "Sources:" and then list the URLs that were used to answer the question.
-           - Only list sources that contained useful and relevant information for the answer.
-           - Use the - symbol for bullet points in the sources section.
-           - Wrap source in <> tags to suppress embedding in Discord.
-
+        5. ALWAYS include sources at the end of your response:
+           - You MUST start a new paragraph with the exact text "Sources:" (including the colon)
+           - The "Sources:" header MUST be on its own line
+           - List each source URL on its own line with a hyphen (-) bullet point
+           - Format ALL sources consistently as: "- <URL>" (no prefixes like "Player data:")
+           - Example:
+             
+             Sources:
+             - <https://oldschool.runescape.wiki/w/Abyssal_whip>
+             - <https://wiseoldman.net/players/playername>
+           
+           - Do NOT add empty lines between sources
+           - Do NOT include duplicate URLs in the sources section
+           - Include ALL relevant sources, including player data sources
+           - The "Sources:" header is ABSOLUTELY REQUIRED for ALL responses
+           - NEVER list URLs without the "Sources:" header
         """
+        
+        # Generate the response
+        response_start_time = time.time()
         response = await asyncio.to_thread(
             lambda: model.generate_content(prompt).text
         )
+        response_time = time.time() - response_start_time
+        print(f"Generated response in {response_time:.2f} seconds")
         
-        # Store this interaction if user_id is provided
-        if user_id:
-            user_interactions[user_id] = {
-                'timestamp': time.time(),
-                'query': user_query,
-                'response': response,
-                'pages': page_names
-            }
-            print(f"Stored interaction for user {user_id}")
+        # Ensure all sources are included
+        response = ensure_all_sources_included(response, player_sources, wiki_sources, web_sources)
         
-        # Import regex at the top level to avoid repeated imports
+        # Clean and format URLs consistently
+        # Reuse the existing URL cleaning logic from process_user_query
         import re
         
         # Define a comprehensive cleaning function for URL patterns
@@ -425,188 +787,52 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
             
             return text
         
-        # Function to ensure all URLs in the Sources section have bullet points
-        def format_sources_section(text):
-            # Find the Sources section
-            sources_patterns = ["\n\nSources:", "\nSources:", "\n\nSource:", "\nSource:"]
-            sources_index = -1
-            matched_pattern = ""
-            
-            for pattern in sources_patterns:
-                if pattern in text:
-                    sources_index = text.find(pattern)
-                    matched_pattern = pattern
-                    break
-            
-            if sources_index == -1:
-                return text  # No Sources section found
-            
-            # Split the text into pre-sources and sources parts
-            pre_sources = text[:sources_index]
-            sources_part = text[sources_index:]
-            
-            # Split the sources part into lines
-            sources_lines = sources_part.split('\n')
-            formatted_sources_lines = [sources_lines[0]]  # Keep the "Sources:" header
-            
-            # Process each line after the header
-            for i in range(1, len(sources_lines)):
-                line = sources_lines[i].strip()
-                
-                # Skip empty lines
-                if not line:
-                    formatted_sources_lines.append('')
-                    continue
-                
-                # Check if the line contains a URL
-                if 'http' in line:
-                    # Check if the line already has a bullet point
-                    if not line.startswith('*') and not line.startswith('-') and not line.startswith('•'):
-                        # Add a bullet point with asterisk
-                        line = f"- {line}"
-                
-                formatted_sources_lines.append(line)
-            
-            # Combine everything back
-            return pre_sources + '\n'.join(formatted_sources_lines)
-        
-        # Check if the model has already generated a "Sources:" or "Source:" section
-        has_sources_section = False
-        sources_patterns = ["\n\nSources:", "\nSources:", "\n\nSource:", "\nSource:"]
-        
-        for pattern in sources_patterns:
-            if pattern in response:
-                has_sources_section = True
-                # Format the existing Sources section
-                response = format_sources_section(response)
-                break
-                
-        # Extract all URLs already in the response before potentially adding sources
-        existing_urls = []
-        url_pattern = re.compile(r'<(https?://[^\s<>"]+)>')
-        existing_urls = url_pattern.findall(response)
-        
-        # Now add our own source citations if there's no existing sources section
-        sources_added = False
-        
-        if not has_sources_section:
-            # Check if we have wiki pages
-            if updated_page_names:
-                sources = "\n\nSources:"
-                urls_to_add = []
-                
-                for page in updated_page_names:
-                    # Clean the page name and create URL
-                    clean_page = page.replace(' ', '_').strip('[]')
-                    url = f"https://oldschool.runescape.wiki/w/{clean_page}"
-                    
-                    # Only add URLs that aren't already in the response
-                    if url not in existing_urls:
-                        urls_to_add.append(url)
-                        sources += f"\n- <{url}>"  # Use hyphen for bullet points
-                
-                # Make sure the response with sources doesn't exceed Discord's limit
-                # Only add sources if we have new URLs to add
-                if urls_to_add and len(response) + len(sources) <= 1900:
-                    response += sources
-                    sources_added = True
-            
-            # Check if we have web search results
-            elif "=== WEB SEARCH RESULTS ===" in wiki_content and not sources_added:
-                # Extract URLs from the web search results
-                source_urls = []
-                source_pattern = re.compile(r'Source: <(https?://[^>]+)>')
-                source_matches = source_pattern.findall(wiki_content)
-                
-                if source_matches:
-                    urls_to_add = []
-                    sources = "\n\nSources:"
-                    
-                    for url in source_matches:
-                        # Only add URLs that aren't already in the response
-                        if url not in existing_urls:
-                            urls_to_add.append(url)
-                            sources += f"\n- <{url}>"  # Use hyphen for bullet points
-                    
-                    # Make sure the response with sources doesn't exceed Discord's limit
-                    # Only add sources if we have new URLs to add
-                    if urls_to_add and len(response) + len(sources) <= 1900:
-                        response += sources
-                        sources_added = True
-        
-        # Now clean all URLs in the response, regardless of whether sources were added
-        
-        # First clean wiki URLs
-        for page in updated_page_names:
-            clean_page = page.replace(' ', '_').strip('[]')
-            base_url = f"https://oldschool.runescape.wiki/w/{clean_page}"
+        # Clean wiki URLs
+        for source in wiki_sources:
+            url = source['url']
+            clean_page = source['name'].replace(' ', '_')
             
             # Handle escaped underscores
             escaped_page = clean_page.replace('_', '\\_')
             escaped_url = f"https://oldschool.runescape.wiki/w/{escaped_page}"
             
-            # Create a pattern that matches the problematic format with both escaped and unescaped versions
-            pattern = r'\(\[' + re.escape(escaped_url) + r'\]\(<' + re.escape(base_url) + r'>\)\)'
-            response = re.sub(pattern, f"(<{base_url}>)", response)
-            
-            # Handle special case for URLs with parentheses
-            if '(' in clean_page and ')' in clean_page:
-                # Extract the parts before and after the parenthesis
-                before_paren = clean_page.split('(')[0]
-                paren_part = '(' + clean_page.split('(')[1]
-                
-                # Create escaped versions for both parts
-                escaped_before = before_paren.replace('_', '\\_')
-                escaped_paren = paren_part.replace('_', '\\_')
-                
-                # Fix cases where the URL is broken with parentheses
-                broken_pattern = f"(<https://oldschool.runescape.wiki/w/{before_paren}>_{paren_part})"
-                correct_url = f"<https://oldschool.runescape.wiki/w/{clean_page}>"
-                response = response.replace(broken_pattern, correct_url)
-                
-                # Also handle the escaped version
-                broken_escaped = f"(<https://oldschool.runescape.wiki/w/{escaped_before}>\\_{escaped_paren})"
-                response = response.replace(broken_escaped, correct_url)
-            
             # Apply the cleaning function with both regular and escaped URLs
-            response = clean_url_patterns(response, base_url, escaped_url)
+            response = clean_url_patterns(response, url, escaped_url)
+        
+        # Clean player URLs
+        for source in player_sources:
+            url = source['url']
+            response = clean_url_patterns(response, url)
+        
+        # Clean web URLs
+        for source in web_sources:
+            url = source['url']
+            response = clean_url_patterns(response, url)
         
         # Now find and clean all other URLs in the response
         # More aggressive URL detection and wrapping
-        # This pattern matches URLs that are not already wrapped in angle brackets
-        # It handles URLs in various contexts, including in bullet points and after hyphens
         unwrapped_url_pattern = re.compile(r'(?<!\<)(https?://[^\s<>"]+)(?!\>)')
-        
-        # Replace all unwrapped URLs with wrapped versions
         response = unwrapped_url_pattern.sub(r'<\1>', response)
         
-        # Additional pass to handle any URLs that might have been missed
-        # This is a more targeted approach for specific contexts
-        url_pattern = re.compile(r'https?://[^\s<>"]+')
-        all_urls = url_pattern.findall(response)
+        # Store this interaction if user_id is provided
+        if user_id:
+            user_interactions[user_id] = {
+                'timestamp': time.time(),
+                'query': user_query,
+                'response': response,
+                'pages': updated_page_names
+            }
+            print(f"Stored interaction for user {user_id}")
         
-        for url in all_urls:
-            # Skip URLs that are already properly formatted
-            if f"<{url}>" in response:
-                continue
-                
-            # Skip URLs that are part of already properly formatted URLs
-            is_part_of_formatted_url = False
-            for formatted_url in [f"<{u}>" for u in all_urls if len(u) > len(url)]:
-                if formatted_url in response and url in formatted_url:
-                    is_part_of_formatted_url = True
-                    break
-                    
-            if is_part_of_formatted_url:
-                continue
-                
-            # Clean the URL using our existing function
-            response = clean_url_patterns(response, url)
+        # Log total processing time
+        total_time = time.time() - start_time
+        print(f"Total processing time: {total_time:.2f} seconds")
         
+        # Truncate if too long for Discord
         return response[:1900] + "\n\n(Response length exceeded)" if len(response) > 1900 else response
         
     except Exception as e:
-        print(f"Error processing query: {e}")
+        print(f"Error processing unified query: {e}")
         return f"Error processing your query: {str(e)}"
 
 async def roast_player(player_data):
@@ -699,23 +925,15 @@ def register_commands(bot):
                 ctx.author.display_name  # Pass the requester's name
             )
             
-            # If guild members are mentioned, fetch their data and use the player data processor
-            if mentioned_members:
-                # Fetch player details for each mentioned member
-                player_data_list = []
-                for member in mentioned_members:
-                    player_data = fetch_player_details(member)
-                    if player_data:
-                        player_data_list.append(player_data)
-                
-                if player_data_list:
-                    #await ctx.send(f"Found {len(player_data_list)} player(s) mentioned in your query. Processing...")
-                    response = await process_player_data_query(user_query, player_data_list, image_urls)
-                    await processing_msg.edit(content=response)
-                    return
+            # Use the unified query processor
+            response = await process_unified_query(
+                user_query or "What is this OSRS item?",
+                user_id=user_id,
+                image_urls=image_urls,
+                mentioned_players=mentioned_members,
+                requester_name=ctx.author.display_name
+            )
             
-            # If no members were found or player data couldn't be fetched, use the regular process
-            response = await process_user_query(user_query or "What is this OSRS item?", image_urls, user_id)
             await processing_msg.edit(content=response)
         except Exception as e:
             # If there was an error, edit the processing message with the error
