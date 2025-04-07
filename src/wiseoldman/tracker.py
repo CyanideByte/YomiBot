@@ -200,12 +200,18 @@ def format_player_data(player_data):
     
     output = []
     
+    
+    player_name = player_data.get('displayName', 'N/A')
+
+    # Add Source URL
+    source_url = f"https://wiseoldman.net/players/{player_name.lower().replace(' ', '_')}"
+    output.append(f"Source URL: {source_url}")
+    output.append("")
+    
     # Player basic info
-    output.append(f"Player: {player_data.get('displayName', 'N/A')}")
+    output.append(f"Player: {player_name}")
     output.append(f"Combat Level: {player_data.get('combatLevel', 'N/A')}")
     output.append(f"Total Experience: {player_data.get('exp', 'N/A')}")
-    output.append(f"Last Updated: {player_data.get('updatedAt', 'N/A')}")
-    output.append("")
     
     # Skills data
     if 'latestSnapshot' in player_data and 'data' in player_data['latestSnapshot']:
@@ -217,7 +223,7 @@ def format_player_data(player_data):
         
         for skill_name, skill_info in skills_data.items():
             # Show all skills, and convert -1 values to 0
-            level = skill_info['level'] if skill_info['level'] != -1 else 0
+            level = skill_info['level'] if skill_info['level'] != -1 else 1
             experience = skill_info['experience'] if skill_info['experience'] != -1 else 0
             output.append(f"{skill_name.capitalize():<15} {level:<10} {experience:<15}")
         

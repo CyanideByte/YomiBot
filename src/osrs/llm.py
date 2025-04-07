@@ -139,6 +139,47 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         print(f"Error identifying wiki pages: {e}")
         return []
 
+async def identify_mentioned_players(user_query: str, guild_members: list, requester_name: str = None):
+    """Use Gemini to identify mentioned players in the query"""
+    if not config.gemini_api_key:
+        print("Gemini API key not set")
+        return []
+    
+    try:
+        model = genai.GenerativeModel(config.gemini_model)
+        
+        # Format the guild members list for the prompt
+        members_list = str(guild_members)
+        
+        prompt = f"""
+        Clan member list:
+        {members_list}
+
+        Based on the above member list, respond with a comma separated list of clan members that you think the user is referring to in the following query or [NO_MEMBERS] if none are mentioned. If the user refers to themself (ex: I/me etc) then add the Requester name to the list as well. Do not respond with anything else.
+
+        Requester name: {requester_name or 'Unknown'}
+        User query: {user_query}
+        """
+        
+        generation = await asyncio.to_thread(
+            lambda: model.generate_content(prompt)
+        )
+        response_text = generation.text.strip()
+        
+        # Check if the response indicates no members were found
+        if response_text == "[NO_MEMBERS]":
+            print("No members identified in query")
+            return []
+            
+        # Parse the comma-separated list of members
+        mentioned_members = [name.strip() for name in response_text.split(',') if name.strip()]
+        print(f"Identified mentioned members: {mentioned_members}")
+        return mentioned_members
+        
+    except Exception as e:
+        print(f"Error identifying mentioned members: {e}")
+        return []
+
 async def generate_search_term(query):
     """Use Gemini to generate a search term based on the user query or determine if no search is needed"""
     if not config.gemini_api_key:
@@ -233,43 +274,6 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         # Identify relevant wiki pages, potentially using image analysis
         page_names = await identify_wiki_pages(user_query, image_urls)
         
-        # Check if we have no pages and should use previous context
-        previous_context = ""
-        
-        # # Code block for previous context and additional pages (currently disabled)
-        # if not page_names and user_id and user_id in user_interactions:
-        #     # Check if previous interaction is within the time window
-        #     prev_interaction = user_interactions[user_id]
-        #     current_time = time.time()
-        #
-        #     if (current_time - prev_interaction['timestamp']) <= INTERACTION_WINDOW:
-        #         # Use previous pages if available
-        #         page_names = prev_interaction['pages'].copy()  # Make a copy to avoid modifying the original
-        #
-        #         # Add previous context to the conversation
-        #         previous_context = f"""
-        #         Your previous question: {prev_interaction['query']}
-        #
-        #         My previous answer: {prev_interaction['response']}
-        #
-        #         I'll use the same wiki pages to answer your follow-up question.
-        #         """
-        #         print(f"Using previous context for user {user_id}")
-        #
-        #         # Try to identify additional wiki pages with the combined context
-        #         if previous_context:
-        #             combined_query = f"{user_query}\n\nContext from previous conversation: {prev_interaction['query']}\n{prev_interaction['response']}"
-        #             print(f"Trying to identify additional wiki pages with combined context")
-        #
-        #             additional_pages = await identify_wiki_pages(combined_query, image_urls)
-        #
-        #             # Add any new pages that aren't already in the list
-        #             if additional_pages:
-        #                 for page in additional_pages:
-        #                     if page not in page_names:
-        #                         page_names.append(page)
-        #                         print(f"Added additional wiki page from context: {page}")
-        
         # Set up variables for content and page tracking
         wiki_content = ""
         updated_page_names = []
@@ -347,8 +351,6 @@ async def process_user_query(user_query: str, image_urls: list[str] = None, user
         
         prompt = f"""
         {SYSTEM_PROMPT}
-        
-        {previous_context}
         
         User Query: {user_query}
         
@@ -689,12 +691,13 @@ def register_commands(bot):
         try:
             # Get guild members to check if any are mentioned in the query
             guild_members = get_guild_members()
-            mentioned_members = []
             
-            # Check if any guild members are mentioned in the query (case insensitive)
-            for member in guild_members:
-                if member.lower() in user_query.lower():
-                    mentioned_members.append(member)
+            # Use Gemini to identify mentioned players in the query
+            mentioned_members = await identify_mentioned_players(
+                user_query,
+                guild_members,
+                ctx.author.display_name  # Pass the requester's name
+            )
             
             # If guild members are mentioned, fetch their data and use the player data processor
             if mentioned_members:
