@@ -13,6 +13,10 @@ screen -dmS $SESSION_NAME bash -c "
   source $VENV_PATH/bin/activate
   # Navigate to the project directory
   cd $(dirname $SCRIPT_PATH)
+  # Update yt-dlp to the latest version
+  echo 'Updating yt-dlp to the latest version...'
+  pip install --upgrade yt-dlp
+  echo 'yt-dlp update complete'
   # Start the yomibot script
   python $(basename $SCRIPT_PATH)
   # Keep the session alive

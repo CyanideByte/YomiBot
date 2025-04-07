@@ -104,7 +104,22 @@ async def play_next(ctx):
 
     if ctx.voice_client and ctx.voice_client.is_connected():
         try:
-            ctx.voice_client.play(state['current_song'], after=lambda e: asyncio.create_task(on_song_end(ctx, e)))
+            # Store the event loop reference
+            loop = asyncio.get_event_loop()
+            
+            # Define a callback function that handles the event loop properly
+            def after_callback(error):
+                try:
+                    # Try to get the current event loop
+                    current_loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    # If there's no event loop in this thread, use the stored one
+                    asyncio.run_coroutine_threadsafe(on_song_end(ctx, error), loop)
+                else:
+                    # If we have an event loop in this thread, use it
+                    asyncio.create_task(on_song_end(ctx, error))
+            
+            ctx.voice_client.play(state['current_song'], after=after_callback)
             print(f"Started playing: {state['current_song'].title}")
             save_currently_playing(ctx.guild.id, state['current_song'], state['next_song'])
         except discord.errors.ClientException:

@@ -26,6 +26,14 @@ ytdl_format_options = {
     'default_search': 'auto',
     'source_address': '0.0.0.0',
     'cookiefile': str(PROJECT_ROOT / 'youtube_cookies.txt'),
+    # Additional options to help with 403 errors
+    'geo_bypass': True,
+    'geo_bypass_country': 'US',
+    'extractor_retries': 3,
+    'retries': 10,
+    'fragment_retries': 10,
+    'skip_unavailable_fragments': True,
+    'external_downloader_args': ['-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5'],
 }
 
 # Print a warning if cookies file doesn't exist
