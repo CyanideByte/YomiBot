@@ -13,6 +13,7 @@ A versatile Discord bot for OSRS Clan Mesa with music playback, Old School RuneS
 ### 🎮 OSRS Wiki Integration
 - Query information from the Old School RuneScape Wiki
 - AI-powered responses using Google's Gemini API
+- Image recognition for OSRS items and screenshots
 - Comprehensive information about items, quests, bosses, and more
 
 ### 🏆 Competition Tracking
@@ -121,10 +122,8 @@ chmod +x start_yomibot.sh
 - `!resume` - Resume playback (alias: `!rs`)
 
 ### OSRS Commands
-- `!askyomi <query>` - Ask a question about Old School RuneScape
-- `!player <username>` - Look up player highscores on Wise Old Man
-
-### Competition Commands
+- `!askyomi <query>` - Ask a question about Old School RuneScape (aliases: `!yomi`, `!ask`)
+- `!roast <username>` - Roast a player based on their OSRS stats
 - `!sotw` - Display recent Skill of the Week competitions
 - `!botw` - Display recent Boss of the Week competitions
 
@@ -148,13 +147,15 @@ src/
 │   ├── __init__.py
 │   ├── llm.py
 │   ├── wiki.py
-│   └── search.py
-├── wiseoldman/           # Wise Old Man API integration
-│   ├── __init__.py
-│   └── tracker.py
-└── utils/                # Utility functions
-    ├── __init__.py
-    └── helpers.py
+│   ├── wiseoldman.py      # Wise Old Man API integration
+│   ├── search.py
+│   └── llm/               # LLM functionality
+│       ├── __init__.py
+│       ├── commands.py
+│       ├── identification.py
+│       ├── image_processing.py
+│       ├── query_processing.py
+│       └── source_management.py
 ```
 
 ## Dependencies

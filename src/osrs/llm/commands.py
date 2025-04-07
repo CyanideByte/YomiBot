@@ -1,7 +1,7 @@
 # Discord command registration
 from osrs.llm.query_processing import process_unified_query, roast_player
 from osrs.llm.identification import identify_mentioned_players
-from wiseoldman.tracker import get_guild_members, fetch_player_details
+from osrs.wiseoldman import get_guild_members, fetch_player_details
 
 def register_commands(bot):
     @bot.command(name='askyomi', aliases=['yomi', 'ask'])

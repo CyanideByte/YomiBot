@@ -2,7 +2,6 @@ import requests
 import json
 import os
 import time
-from utils.helpers import transform_metric_name
 from config.config import PROJECT_ROOT
 
 # Replace with your clan's group ID
@@ -34,6 +33,14 @@ SKILLS = [
     "fletching", "slayer", "hunter", "mining", "smithing", "fishing", "cooking",
     "firemaking", "woodcutting", "farming"
 ]
+
+def transform_metric_name(metric):
+    """
+    Removes 'the_' prefix if present and capitalizes the metric words.
+    """
+    if metric.startswith("the_"):
+        metric = metric[4:]
+    return " ".join(word.capitalize() for word in metric.split("_"))
 
 def get_recent_competitions(group_id):
     """

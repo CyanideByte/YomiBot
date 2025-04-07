@@ -5,7 +5,7 @@ import google.generativeai as genai
 from config.config import config
 from osrs.llm.identification import identify_and_fetch_players, identify_and_fetch_wiki_pages, is_player_only_query
 from osrs.llm.source_management import ensure_all_sources_included, clean_url_patterns
-from wiseoldman.tracker import format_player_data
+from osrs.wiseoldman import format_player_data
 
 # Store user's recent interactions (user_id -> {timestamp, query, response, pages})
 user_interactions = {}

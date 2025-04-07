@@ -10,7 +10,7 @@ from config.config import config
 # Import modules
 from music import setup_music_commands
 from osrs.wiki import setup_osrs_commands
-from wiseoldman.tracker import setup_competition_commands
+from osrs.wiseoldman import setup_competition_commands
 
 # Define the intents
 intents = discord.Intents.default()

@@ -7,8 +7,7 @@ import random
 from discord.ext import commands
 import yt_dlp as youtube_dl
 import spotipy
-
-from utils.helpers import save_queue, normalize_youtube_music_url
+from .music_manager import save_queue, normalize_youtube_music_url
 from .music_sources import ytdl, spotify, YTDLSource, ytdl_format_options
 from .music_manager import (
     get_server_state, play_next, preload_next_song, 

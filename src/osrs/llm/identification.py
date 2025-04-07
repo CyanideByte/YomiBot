@@ -3,7 +3,7 @@ import datetime
 import google.generativeai as genai
 from config.config import config
 from osrs.llm.image_processing import fetch_image, identify_items_in_images
-from wiseoldman.tracker import get_guild_members, fetch_player_details
+from osrs.wiseoldman import get_guild_members, fetch_player_details
 
 async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
     """Use Gemini to identify relevant wiki pages for the query"""

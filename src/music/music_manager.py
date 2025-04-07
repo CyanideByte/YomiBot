@@ -2,8 +2,67 @@ import asyncio
 import discord
 import json
 import os
+import re
+import time
+from config.config import PROJECT_ROOT
 
-from utils.helpers import save_queue, load_queue, save_currently_playing
+QUEUE_DIR = os.path.join(PROJECT_ROOT, 'queues')
+
+# Ensure queue directory exists
+if not os.path.exists(QUEUE_DIR):
+    os.makedirs(QUEUE_DIR)
+
+def save_queue(server_id, queue_data):
+    """Save the queue data for a server to a file"""
+    queue_file = os.path.join(QUEUE_DIR, f'queue_{server_id}.json')
+    with open(queue_file, 'w') as f:
+        json.dump(queue_data, f, indent=4)
+
+def load_queue(server_id):
+    """Load the queue data for a server from a file"""
+    queue_file = os.path.join(QUEUE_DIR, f'queue_{server_id}.json')
+    if os.path.exists(queue_file):
+        with open(queue_file, 'r') as f:
+            return json.load(f)
+    return []
+
+def save_currently_playing(guild_id, current_song_data, next_song_data=None):
+    """Save the currently playing song data to a file"""
+    currently_playing = {
+        "title": current_song_data.title,
+        "channel": current_song_data.channel,
+        "duration": current_song_data.duration,
+        "url": current_song_data.original_url,
+        "start_time": int(time.time())
+    }
+
+    next_song = None
+    if next_song_data:
+        next_song = {
+            "title": next_song_data.title,
+            "channel": next_song_data.channel,
+            "duration": next_song_data.duration,
+            "url": next_song_data.original_url
+        }
+
+    data = {
+        "currently_playing": currently_playing,
+        "next_song": next_song
+    }
+
+    file_path = os.path.join(QUEUE_DIR, f'currently_playing_{guild_id}.json')
+    with open(file_path, 'w') as f:
+        json.dump(data, f, indent=4)
+
+def normalize_youtube_music_url(url):
+    """Normalize YouTube Music URLs to standard YouTube URLs"""
+    if 'watch' in url:
+        url = re.sub(r'(\?|&)list=.+', '', url)
+    url = re.sub(r'(\?|&)start_radio=1', '', url)
+    url = re.sub(r'(\?|&)si=.+', '', url)
+    url = url.replace('music.youtube.com', 'www.youtube.com')
+    return url
+
 from .music_sources import YTDLSource
 
 # Server state dictionary to track music playback state
@@ -130,8 +189,7 @@ def clear_queue_and_current_song(ctx):
     
     state['queue'] = []
     save_queue(ctx.guild.id, state['queue'])
-    
-    from utils.helpers import QUEUE_DIR
+    currently_playing_file = os.path.join(QUEUE_DIR, f'currently_playing_{ctx.guild.id}.json')
     currently_playing_file = os.path.join(QUEUE_DIR, f'currently_playing_{ctx.guild.id}.json')
     with open(currently_playing_file, 'w') as f:
         json.dump({}, f, indent=4)
