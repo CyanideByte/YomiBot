@@ -254,7 +254,7 @@ async def get_web_search_context(query):
     """
     try:
         # Import here to avoid circular imports
-        from osrs.llm import generate_search_term
+        from osrs.llm.identification import generate_search_term
         
         # Generate a search term based on the query
         search_term = await generate_search_term(query)

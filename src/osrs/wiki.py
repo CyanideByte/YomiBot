@@ -342,5 +342,5 @@ def fetch_osrs_wiki_pages(page_names):
 # This function is imported by the main bot file
 def setup_osrs_commands(bot):
     # Import here to avoid circular imports
-    from osrs.llm import register_commands
+    from osrs.llm.commands import register_commands
     register_commands(bot)
