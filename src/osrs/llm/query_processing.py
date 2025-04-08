@@ -7,12 +7,6 @@ from osrs.llm.identification import identify_and_fetch_players, identify_and_fet
 from osrs.llm.source_management import ensure_all_sources_included, clean_url_patterns
 from osrs.wiseoldman import format_player_data
 
-# Store user's recent interactions (user_id -> {timestamp, query, response, pages})
-user_interactions = {}
-
-# Time window in seconds for considering previous interactions (5 minutes)
-INTERACTION_WINDOW = 60  # 1 minutes * 60 seconds
-
 # System prompt for Gemini
 # Unified system prompt for both player data and wiki information
 UNIFIED_SYSTEM_PROMPT = """
@@ -209,16 +203,6 @@ async def process_unified_query(
         # More aggressive URL detection and wrapping
         unwrapped_url_pattern = re.compile(r'(?<!\<)(https?://[^\s<>"]+)(?!\>)')
         response = unwrapped_url_pattern.sub(r'<\1>', response)
-        
-        # Store this interaction if user_id is provided
-        if user_id:
-            user_interactions[user_id] = {
-                'timestamp': time.time(),
-                'query': user_query,
-                'response': response,
-                'pages': updated_page_names
-            }
-            print(f"Stored interaction for user {user_id}")
         
         # Log total processing time
         total_time = time.time() - start_time
