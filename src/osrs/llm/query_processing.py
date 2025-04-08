@@ -33,7 +33,8 @@ async def process_unified_query(
     user_query: str,
     user_id: str = None,
     image_urls: list[str] = None,
-    requester_name: str = None
+    requester_name: str = None,
+    status_message = None
 ) -> str:
     """
     Unified function to process queries using both player data and wiki/web information
@@ -56,18 +57,26 @@ async def process_unified_query(
         start_time = time.time()
         
         # First, identify and fetch player data
+        if status_message:
+            await status_message.edit(content="Finding players...")
+            
         player_task = identify_and_fetch_players(user_query, requester_name=requester_name)
         player_data_list, player_sources = await player_task
         
         # Determine if this is a player-only query
         is_player_only = False
         if player_data_list:
+            if status_message:
+                await status_message.edit(content="Analyzing query...")
+                
             is_player_only = await is_player_only_query(user_query, player_data_list)
             print(f"Query determined to be player-only: {is_player_only}")
         
         # Only fetch wiki/web content if this is not a player-only query
         if not is_player_only:
-            print("Fetching wiki and web content...")
+            if status_message:
+                await status_message.edit(content="Searching wiki and web...")
+            
             wiki_task = identify_and_fetch_wiki_pages(user_query, image_urls)
             wiki_content, updated_page_names, wiki_sources, web_sources = await wiki_task
         else:
@@ -168,14 +177,48 @@ async def process_unified_query(
         
         # Generate the response
         response_start_time = time.time()
-        response = await asyncio.to_thread(
-            lambda: model.generate_content(prompt).text
-        )
+        try:
+            if status_message:
+                await status_message.edit(content="Generating response...")
+                
+            generation = await asyncio.to_thread(
+                lambda: model.generate_content(prompt)
+            )
+            if generation is None:
+                raise ValueError("Gemini model returned None")
+            if not generation.text:
+                raise ValueError("Gemini model returned empty response")
+            response = generation.text.strip()
+            if not response:
+                raise ValueError("Gemini model returned whitespace-only response")
+                
+            # For player-only queries, ensure response has "Sources:" section
+            if is_player_only and "Sources:" not in response:
+                response += "\n\nSources:"
+                
+        except Exception as e:
+            print(f"Failed to generate response: {e}")
+            return f"Error: Failed to generate response - {str(e)}"
         response_time = time.time() - response_start_time
         print(f"Generated response in {response_time:.2f} seconds")
+        # For player-only queries, simplify source handling
+        if is_player_only:
+            # Build sources section with just player sources
+            sources_section = "\n\nSources:"
+            for source in player_sources:
+                if 'url' in source:
+                    sources_section += f"\n- <{source['url']}>"
+            
+            # Replace or append sources section
+            if "Sources:" in response:
+                # Replace entire sources section
+                response = re.sub(r'\n\nSources:.*$', sources_section, response, flags=re.DOTALL)
+            else:
+                response += sources_section
+        else:
+            # Normal source handling for non-player-only queries
+            response = ensure_all_sources_included(response, player_sources, wiki_sources, web_sources)
         
-        # Ensure all sources are included
-        response = ensure_all_sources_included(response, player_sources, wiki_sources, web_sources)
         
         # Clean wiki URLs
         for source in wiki_sources:
@@ -209,7 +252,13 @@ async def process_unified_query(
         print(f"Total processing time: {total_time:.2f} seconds")
         
         # Truncate if too long for Discord
-        return response[:1900] + "\n\n(Response length exceeded)" if len(response) > 1900 else response
+        response = response[:1900] + "\n\n(Response length exceeded)" if len(response) > 1900 else response
+        
+        # Update status message with final response
+        if status_message:
+            await status_message.edit(content=response)
+            
+        return response
         
     except Exception as e:
         print(f"Error processing unified query: {e}")
@@ -222,25 +271,37 @@ async def roast_player(player_data):
     if not config.gemini_api_key:
         return "Sorry, the player roast feature is not available because the Gemini API key is not set."
     
+    if not player_data or 'displayName' not in player_data:
+        return None
+        
     try:
         model = genai.GenerativeModel(config.gemini_model)
         
         # Format player data for context
-        player_context = format_player_data(player_data)
+        try:
+            player_context = format_player_data(player_data)
+            if not player_context:
+                return None
+        except Exception as e:
+            print(f"Error formatting player data: {e}")
+            return None
+            
         player_name = player_data.get('displayName', 'Unknown player')
         
         prompt = f"""
-        You are a witty Old School RuneScape roast generator. Your task is to create a humorous, slightly sarcastic roast of a player based on their stats.
+        You are a ruthless and savage OSRS player who absolutely destroys noobs based on their stats. Your task is to brutally roast this player by pointing out everything wrong with their account.
         
         Rules for the roast:
-        1. Focus ONLY on the player's low skills, low boss kill counts, or high counts in easy/noob bosses or skills
-        2. The roast should be ONE concise paragraph (not bullet points)
-        3. Be witty and humorous, but not overly mean
-        4. Mention specific skills or bosses from their data that are notably low or "noob-like"
-        5. If they have high kill counts in easy bosses but low counts in hard bosses, definitely mention that
-        6. If they have high levels in easy skills but low levels in challenging skills, point that out
-        7. Keep the tone light and playful
-        
+        1. ONLY focus on negatives - low skills, pathetic boss KC's, and embarrassingly high time spent on easy content
+        2. The roast must be ONE savage paragraph (not bullet points)
+        3. Be absolutely ruthless - no holding back, no being polite
+        4. Savage comparisons are encouraged (e.g. "a level 3 bot has better stats")
+        5. Mock any high KC's in easy bosses while pointing out zero KC's in real content
+        6. Ridicule high levels in easy skills while roasting their terrible levels in actual challenging skills
+        7. If they have decent total level but terrible bossing stats, mock them for being a skilling pet hunter
+        8. Use words like "pathetic", "embarrassing", "terrible", "laughable"
+        9. End with a devastating final punch
+
         Player Name: {player_name}
         
         Player Stats:
@@ -249,15 +310,26 @@ async def roast_player(player_data):
         Generate a single paragraph roast focusing on the player's noob-like stats or achievements.
         """
         
-        response = await asyncio.to_thread(
-            lambda: model.generate_content(prompt).text
-        )
-        
-        # Format the response for Discord
-        formatted_response = f"**Roast of {player_name}**\n\n{response}"
-        
-        return formatted_response
-        
+        try:
+            generation = await asyncio.to_thread(
+                lambda: model.generate_content(prompt)
+            )
+            if generation is None:
+                return None
+            if not generation.text:
+                return None
+            response = generation.text.strip()
+            if not response:
+                return None
+                
+            # Format the response for Discord
+            formatted_response = f"**Roast of {player_name}**\n\n{response}"
+            return formatted_response
+            
+        except Exception as e:
+            print(f"Error in model generation: {e}")
+            return None
+            
     except Exception as e:
         print(f"Error generating player roast: {e}")
-        return f"Error generating roast: {str(e)}"
+        return None

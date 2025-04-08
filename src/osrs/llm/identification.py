@@ -248,9 +248,10 @@ async def identify_and_fetch_players(user_query: str, requester_name=None):
         print(f"Error identifying and fetching players: {e}")
         return [], []
 
-async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None):
+async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status_message=None):
     """Identify and fetch wiki pages and web search results"""
     wiki_content = ""
+    search_terms = []  # Track search terms for status updates
     wiki_sources = []
     web_sources = []
     search_results = None  # Initialize search_results variable to store the first call result
@@ -270,9 +271,13 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None):
         
         # If we have less than 5 wiki pages identified or none at all, perform web search
         if len(wiki_page_names) < 5:
-            print(f"Found {len(wiki_page_names)} wiki pages, performing web search to find more sources...")
+            print(f"Found {len(wiki_page_names)} wiki pages, performing web search...")
             
-            # Get raw search results
+            # Generate search term and get results
+            search_term = await generate_search_term(user_query)
+            if search_term != '[NO_SEARCH_NEEDED]':
+                search_terms.append(search_term)
+            
             search_results = await get_web_search_context(user_query)
             
             # Process each search result
@@ -341,6 +346,11 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None):
             
             # Reuse search results if we already have them, otherwise fetch new ones
             if search_results is None:
+                search_term = await generate_search_term(user_query)
+                if search_term != '[NO_SEARCH_NEEDED]':
+                    search_terms.append(search_term)
+                    if status_message:
+                        await status_message.edit(content=f"{status}\nSearch term: {search_term}")
                 search_results = await get_web_search_context(user_query)
             
             # Format the results for use as context

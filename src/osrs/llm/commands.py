@@ -1,6 +1,7 @@
 # Discord command registration
 from osrs.llm.query_processing import process_unified_query, roast_player
-from osrs.wiseoldman import fetch_player_details
+from osrs.wiseoldman import fetch_player_details, get_guild_members
+from osrs.llm.identification import identify_mentioned_players
 
 def register_commands(bot):
     @bot.command(name='askyomi', aliases=['yomi', 'ask'])
@@ -34,47 +35,66 @@ def register_commands(bot):
             )
 
         try:
-            # Use the unified query processor
+            # Pass initial processing message to allow for status updates
             response = await process_unified_query(
                 user_query or "What is this OSRS item?",
                 user_id=user_id,
                 image_urls=image_urls,
-                requester_name=ctx.author.display_name
+                requester_name=ctx.author.display_name,
+                status_message=processing_msg
             )
             
-            await processing_msg.edit(content=response)
+            # Final response will be handled by process_unified_query
         except Exception as e:
             # If there was an error, edit the processing message with the error
             await processing_msg.edit(content=f"Error processing your request: {str(e)}")
             
     @bot.command(name='roast', help='Roasts a player based on their OSRS stats.')
-    async def roast(ctx, *, username=None):
+    async def roast(ctx, *, user_query=None):
         """Command to roast a player based on their OSRS stats."""
-        if username is None:
+        if user_query is None:
             await ctx.send("Please provide a username to roast. Example: !roast zezima")
             return
-
-        # Handle the case where the user wants to roast themselves
-        if username.lower() == "me":
-            username = ctx.author.display_name
-        
+            
         # Let the user know we're processing their request
         processing_msg = await ctx.send(
-            f"Preparing a roast for {username}, this may take a moment...",
+            "Finding player to roast...",
             reference=ctx.message
         )
-        
+
         try:
-            # Fetch player details
-            player_data = fetch_player_details(username)
-            
-            if player_data:
-                # Generate the roast
-                roast_response = await roast_player(player_data)
-                await processing_msg.edit(content=roast_response)
+            # Handle the case where the user wants to roast themselves
+            if user_query.lower() == "me":
+                target_player = ctx.author.display_name
             else:
-                await processing_msg.edit(content=f"Could not find player '{username}' or an error occurred.")
-        except TypeError:
-            await processing_msg.edit(content=f"Error: Player data for '{username}' is not available.")
+                # Use identify_mentioned_players to find the player
+                guild_members = get_guild_members()
+                identified_players = await identify_mentioned_players(user_query, guild_members, ctx.author.display_name)
+                
+                if not identified_players:
+                    await processing_msg.edit(content=f"Could not find any players matching '{user_query}'. Are you sure they exist? Maybe they're too irrelevant to roast.")
+                    return
+                
+                # Use the first identified player
+                target_player = identified_players[0]
+
+            await processing_msg.edit(content=f"Preparing a savage roast for {target_player}...")
+            
+            # Fetch player details
+            player_data = fetch_player_details(target_player)
+            
+            if not player_data:
+                await processing_msg.edit(content=f"Couldn't find any stats for '{target_player}'. They're so irrelevant they don't even show up on WiseOldMan.")
+                return
+                
+            # Generate the roast
+            roast_response = await roast_player(player_data)
+            if not roast_response:
+                await processing_msg.edit(content=f"Their stats are so bad I'm actually speechless. I can't even roast '{target_player}' - they've roasted themselves just by existing.")
+                return
+                
+            await processing_msg.edit(content=roast_response)
+            
         except Exception as e:
-            await processing_msg.edit(content=f"An unexpected error occurred: {str(e)}")
+            print(f"Error in roast command: {e}")
+            await processing_msg.edit(content=f"Something went wrong while trying to roast this noob. They're probably not worth roasting anyway.")
