@@ -4,6 +4,8 @@ import os
 import os.path
 import json
 import time
+import asyncio
+import aiohttp
 from config.config import PROJECT_ROOT
 
 
@@ -106,29 +108,31 @@ def extract_item_info(html_content):
         info['combat_stats'] = combat_stats
     return info
 
-def find_redirect_target(url):
+async def find_redirect_target(session, url):
     """Find the redirect target URL if a page redirects"""
     headers = {
         'User-Agent': 'OSRS Wiki Assistant/1.0'
     }
-    
+
     try:
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Check for canonical link which indicates the "true" URL
-        canonical = soup.find('link', attrs={'rel': 'canonical'})
-        if canonical and canonical['href'] != url:
-            return canonical['href']
-        
-        # Alternative method: check for redirect notice in content
-        redirect_notice = soup.find('div', class_='redirectMsg')
-        if redirect_notice:
-            redirect_link = redirect_notice.find('a')
-            if redirect_link and redirect_link.get('href'):
-                return f"https://oldschool.runescape.wiki{redirect_link['href']}"
-        
-        return None
+        async with session.get(url, headers=headers) as response:
+            if response.status == 200:
+                content = await response.text()
+                soup = BeautifulSoup(content, 'html.parser')
+
+                # Check for canonical link which indicates the "true" URL
+                canonical = soup.find('link', attrs={'rel': 'canonical'})
+                if canonical and canonical['href'] != url:
+                    return canonical['href']
+
+                # Alternative method: check for redirect notice in content
+                redirect_notice = soup.find('div', class_='redirectMsg')
+                if redirect_notice:
+                    redirect_link = redirect_notice.find('a')
+                    if redirect_link and redirect_link.get('href'):
+                        return f"https://oldschool.runescape.wiki{redirect_link['href']}"
+
+            return None
     except Exception as e:
         print(f"Error checking for redirect: {e}")
         return None
@@ -189,7 +193,7 @@ def save_to_cache(page_name, data, headers):
     except Exception as e:
         print(f"Error saving cache for {page_name}: {e}")
 
-def fetch_osrs_wiki(page_name):
+async def fetch_osrs_wiki(session, page_name):
     """Fetch content from OSRS wiki page, following redirects if necessary"""
     original_page_name = page_name
     url = f"https://oldschool.runescape.wiki/w/{page_name}"
@@ -210,38 +214,41 @@ def fetch_osrs_wiki(page_name):
             headers['If-Modified-Since'] = cache_data['last_modified']
     
     # First check if the page redirects
-    redirect_url = find_redirect_target(url)
+    redirect_url = await find_redirect_target(session, url)
     if redirect_url:
         # Extract the redirected page name from the URL
         redirected_page_name = redirect_url.split("/w/")[-1]
         print(f"Page {page_name} redirects to {redirected_page_name}")
         # Update the page name and URL
         page_name = redirected_page_name
-        url = redirect_url
-    response = requests.get(url, headers=headers)
-    if response.status_code == 304 and cache_data:
-        # Not modified, use cached content
-        print(f"Server validated cache is still fresh (304 Not Modified)")
-        print(f"Cache validation headers: ETag={headers.get('If-None-Match')}, Last-Modified={headers.get('If-Modified-Since')}")
-        html_content = cache_data['content']
-    elif response.status_code == 200:
-        # Save new content to cache
-        html_content = response.text
-        if not cache_data:
-            print(f"No cache exists for {page_name}")
-        else:
-            if cache_data.get('etag') != response.headers.get('ETag'):
-                print(f"Cache invalidated - ETag changed")
-            elif cache_data.get('last_modified') != response.headers.get('Last-Modified'):
-                print(f"Cache invalidated - Last-Modified changed")
+        url = redirect_url # Use the potentially new URL
+
+    async with session.get(url, headers=headers) as response:
+        if response.status == 304 and cache_data:
+            # Not modified, use cached content
+            print(f"Server validated cache is still fresh (304 Not Modified)")
+            print(f"Cache validation headers: ETag={headers.get('If-None-Match')}, Last-Modified={headers.get('If-Modified-Since')}")
+            html_content = cache_data['content']
+        elif response.status == 200:
+            # Save new content to cache
+            html_content = await response.text()
+            response_headers = response.headers
+            if not cache_data:
+                print(f"No cache exists for {page_name}")
             else:
-                print(f"Cache expired (older than 24 hours)")
-        print(f"Saving new content to cache with headers: ETag={response.headers.get('ETag')}, Last-Modified={response.headers.get('Last-Modified')}")
-        save_to_cache(page_name, html_content, response.headers)
-    else:
-        if response.status_code == 404:
-            return f"Page not found - This item/content may be unreleased or not exist in OSRS yet.", original_page_name, page_name
-        return f"Failed to download page: {url} (Status code: {response.status_code})", original_page_name, page_name
+                if cache_data.get('etag') != response_headers.get('ETag'):
+                    print(f"Cache invalidated - ETag changed")
+                elif cache_data.get('last_modified') != response_headers.get('Last-Modified'):
+                    print(f"Cache invalidated - Last-Modified changed")
+                else:
+                    # This case shouldn't happen if 304 was handled, but good for logging
+                    print(f"Cache expired or headers mismatch, fetching new content.")
+            print(f"Saving new content to cache with headers: ETag={response_headers.get('ETag')}, Last-Modified={response_headers.get('Last-Modified')}")
+            save_to_cache(page_name, html_content, response_headers)
+        else:
+            if response.status == 404:
+                return f"Page not found - This item/content may be unreleased or not exist in OSRS yet.", original_page_name, page_name
+            return f"Failed to download page: {url} (Status code: {response.status})", original_page_name, page_name
 
     info = extract_item_info(html_content)
     output = ""
@@ -312,29 +319,38 @@ def fetch_osrs_wiki(page_name):
     # Return the content, the original page name, and the potentially redirected page name
     return output, original_page_name, page_name
 
-def fetch_osrs_wiki_pages(page_names):
+async def fetch_osrs_wiki_pages(page_names):
     """Fetch content from multiple OSRS wiki pages and return their combined content"""
     if not page_names:
         return "No wiki pages specified", {}
-    
+
     combined_content = ""
     # Dictionary to track redirects: original_name -> redirected_name
     redirects = {}
-    
-    for i, page_name in enumerate(page_names):
-        # Add a very distinct separator between wiki pages
-        if i > 0:
-            combined_content += "\n\n" + "="*50 + " NEW WIKI PAGE " + "="*50 + "\n\n"
-        
-        # Fetch page content and get redirect information
-        page_content, original_name, redirected_name = fetch_osrs_wiki(page_name)
-        
-        # Record any redirects that occurred
-        if original_name != redirected_name:
-            redirects[original_name] = redirected_name
-        
-        combined_content += f"[SOURCE: {redirected_name}]\n\n{page_content}"
-    
+    tasks = []
+
+    # Use a single session for all requests
+    async with aiohttp.ClientSession() as session:
+        for page_name in page_names:
+            # Create a task for each page fetch
+            task = asyncio.create_task(fetch_osrs_wiki(session, page_name))
+            tasks.append(task)
+
+        # Wait for all tasks to complete
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Process results
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            combined_content += f"\n\n{'='*50} ERROR FETCHING PAGE {page_names[i]} {'='*50}\n\nError: {result}\n"
+        else:
+            page_content, original_name, redirected_name = result
+            if original_name != redirected_name:
+                redirects[original_name] = redirected_name
+            if i > 0: # Add separator before the second page onwards
+                combined_content += "\n\n" + "="*50 + " NEW WIKI PAGE " + "="*50 + "\n\n"
+            combined_content += f"[SOURCE: {redirected_name}]\n\n{page_content}"
+
     return combined_content, redirects
 
 

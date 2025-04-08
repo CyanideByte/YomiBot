@@ -90,7 +90,7 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
         Clan member list:
         {members_list}
 
-        Based on the above member list, respond with a comma separated list of clan members that you think the user is referring to in the following query or [NO_MEMBERS] if none are mentioned. If the user refers to themself (ex: I/me etc) then add the Requester name to the list as well. Do not respond with anything else.
+        Based on the above member list, respond with a comma separated list of clan members that you think the user is referring to in the following query or [NO_MEMBERS] if none are mentioned. If the user refers to themself (ex: I/me etc, but not 'yourself' as that refers to the bot) then add the Requester name to the list as well. Do not respond with anything else.
 
         Requester name: {requester_name or 'Unknown'}
         User query: {user_query}
@@ -227,7 +227,7 @@ async def identify_and_fetch_players(user_query: str, mentioned_players=None, re
     
     try:
         # If mentioned_players is already provided, use that
-        if mentioned_players:
+        if mentioned_players is not None:
             for player_name in mentioned_players:
                 player_data = fetch_player_details(player_name)
                 if player_data:
@@ -316,9 +316,7 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None):
             print(f"Fetching wiki pages: {', '.join(wiki_page_names)}")
             
             # Fetch content from identified wiki pages
-            wiki_content, redirects = await asyncio.to_thread(
-                fetch_osrs_wiki_pages, wiki_page_names
-            )
+            wiki_content, redirects = await fetch_osrs_wiki_pages(wiki_page_names)
             
             # Update page_names with redirected names for correct source URLs
             for page in wiki_page_names:

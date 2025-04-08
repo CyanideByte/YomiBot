@@ -1,5 +1,6 @@
 import os
 import requests
+import aiohttp
 from bs4 import BeautifulSoup
 import re
 from pathlib import Path
@@ -125,7 +126,7 @@ def save_page_content_to_cache(url, content):
         print(f"Error saving page cache for URL {url}: {e}")
 
 # Extract printable text from a web page
-def extract_text_from_url(page_url):
+async def extract_text_from_url(session, page_url):
     try:
         # Try to load from cache first
         cached_content = load_cached_page_content(page_url)
@@ -133,23 +134,26 @@ def extract_text_from_url(page_url):
             return cached_content
             
         print(f"Fetching content from URL: {page_url}")
-        res = requests.get(
-            page_url,
-            timeout=10,
-            headers={"User-Agent": USER_AGENT},
-            allow_redirects=True
-        )
-        soup = BeautifulSoup(res.content, "html.parser")
-        for tag in soup(["script", "style", "noscript"]):
-            tag.decompose()
-        
-        content = soup.get_text(separator="\n", strip=True)
-        
-        # Save to cache if content was successfully extracted
-        if content:
-            save_page_content_to_cache(page_url, content)
-            
-        return content
+        headers = {"User-Agent": USER_AGENT}
+        # Use a timeout for the request
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with session.get(page_url, headers=headers, timeout=timeout, allow_redirects=True) as response:
+            if response.status == 200:
+                html_content = await response.text()
+                soup = BeautifulSoup(html_content, "html.parser")
+                for tag in soup(["script", "style", "noscript"]):
+                    tag.decompose()
+                
+                content = soup.get_text(separator="\n", strip=True)
+                
+                # Save to cache if content was successfully extracted
+                if content:
+                    save_page_content_to_cache(page_url, content)
+                    
+                return content
+            else:
+                print(f"Failed to fetch {page_url}: Status {response.status}")
+                return None
     except Exception as e:
         print(f"Failed to fetch {page_url}: {e}")
         return None
@@ -186,36 +190,52 @@ async def search_web(search_term):
             results = response.json().get("web", {}).get("results", [])
             
             # Format to store all search results
-            formatted_results = []
-            
-            for result in results:
-                title = result.get("title", "Untitled")
-                link = result.get("url")
-                
-                # Skip results from runescape.fandom.com and runescape.wiki
-                # but allow oldschool.runescape.wiki
-                if "runescape.fandom.com" in link or (
-                    "runescape.wiki" in link and "oldschool.runescape.wiki" not in link
-                ):
-                    print(f"Skipping excluded domain: {link}")
-                    continue
+            tasks = []
+            original_results = [] # Keep track of original result order and metadata
+
+            # Create a single session for fetching page content
+            async with aiohttp.ClientSession() as session:
+                for result in results:
+                    title = result.get("title", "Untitled")
+                    link = result.get("url")
                     
-                print(f"\nProcessing result: {title}\n{link}")
-                
-                text = extract_text_from_url(link)
-                if text:
+                    # Skip results from runescape.fandom.com and runescape.wiki
+                    # but allow oldschool.runescape.wiki
+                    if not link or "runescape.fandom.com" in link or (
+                        "runescape.wiki" in link and "oldschool.runescape.wiki" not in link
+                    ):
+                        if link: print(f"Skipping excluded domain: {link}")
+                        continue
+                        
+                    print(f"\nQueueing content fetch for: {title}\n{link}")
+                    # Store original result metadata and create task
+                    original_results.append({"title": title, "url": link})
+                    tasks.append(extract_text_from_url(session, link))
+
+                # Fetch content concurrently
+                print(f"Fetching content for {len(tasks)} URLs concurrently...")
+                content_results = await asyncio.gather(*tasks, return_exceptions=True)
+                print("Finished fetching content.")
+
+            # Combine original metadata with fetched content
+            formatted_results = []
+            for i, content in enumerate(content_results):
+                original = original_results[i]
+                if isinstance(content, Exception):
+                    print(f"Error fetching content for {original['url']}: {content}")
+                elif content:
                     # Truncate text if it's too long (first 2000 chars)
-                    if len(text) > 2000:
-                        text = text[:2000] + "... (content truncated)"
+                    if len(content) > 2000:
+                        content = content[:2000] + "... (content truncated)"
                     
                     formatted_results.append({
-                        "title": title,
-                        "url": link,
-                        "content": text
+                        "title": original['title'],
+                        "url": original['url'],
+                        "content": content
                     })
-                    print(f"Successfully processed content from: {link}")
+                    print(f"Successfully processed content from: {original['url']}")
                 else:
-                    print(f"Skipped (no content found): {link}")
+                    print(f"Skipped (no content found): {original['url']}")
             
             # Save search results to cache
             if formatted_results:
