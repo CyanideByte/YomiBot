@@ -220,29 +220,13 @@ async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
         # If there's an error, default to False (safer to get more information)
         return False
 
-async def identify_and_fetch_players(user_query: str, mentioned_players=None, requester_name=None):
+async def identify_and_fetch_players(user_query: str, requester_name=None):
     """Identify mentioned players in the query and fetch their data"""
     player_data_list = []
     player_sources = []
     
     try:
-        # If mentioned_players is already provided, use that
-        if mentioned_players is not None:
-            for player_name in mentioned_players:
-                player_data = fetch_player_details(player_name)
-                if player_data:
-                    player_data_list.append(player_data)
-                    
-                    # Add to sources
-                    player_url = f"https://wiseoldman.net/players/{player_name.lower().replace(' ', '_')}"
-                    player_sources.append({
-                        'type': 'wiseoldman',
-                        'name': player_name,
-                        'url': player_url
-                    })
-            return player_data_list, player_sources
-        
-        # Otherwise, identify players from the query
+        # Identify players from the query
         guild_members = get_guild_members()
         identified_players = await identify_mentioned_players(user_query, guild_members, requester_name)
         
@@ -269,6 +253,7 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None):
     wiki_content = ""
     wiki_sources = []
     web_sources = []
+    search_results = None  # Initialize search_results variable to store the first call result
     
     try:
         # Import here to avoid circular imports
@@ -354,8 +339,9 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None):
         if not wiki_content:
             print("No wiki pages identified, performing full web search...")
             
-            # Get raw search results
-            search_results = await get_web_search_context(user_query)
+            # Reuse search results if we already have them, otherwise fetch new ones
+            if search_results is None:
+                search_results = await get_web_search_context(user_query)
             
             # Format the results for use as context
             wiki_content = format_search_results(search_results)

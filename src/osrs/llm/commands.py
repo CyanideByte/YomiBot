@@ -1,7 +1,6 @@
 # Discord command registration
 from osrs.llm.query_processing import process_unified_query, roast_player
-from osrs.llm.identification import identify_mentioned_players
-from osrs.wiseoldman import get_guild_members, fetch_player_details
+from osrs.wiseoldman import fetch_player_details
 
 def register_commands(bot):
     @bot.command(name='askyomi', aliases=['yomi', 'ask'])
@@ -35,22 +34,11 @@ def register_commands(bot):
             )
 
         try:
-            # Get guild members to check if any are mentioned in the query
-            guild_members = get_guild_members()
-            
-            # Use Gemini to identify mentioned players in the query
-            mentioned_members = await identify_mentioned_players(
-                user_query,
-                guild_members,
-                ctx.author.display_name  # Pass the requester's name
-            )
-            
             # Use the unified query processor
             response = await process_unified_query(
                 user_query or "What is this OSRS item?",
                 user_id=user_id,
                 image_urls=image_urls,
-                mentioned_players=mentioned_members,
                 requester_name=ctx.author.display_name
             )
             

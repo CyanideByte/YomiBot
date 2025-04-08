@@ -39,7 +39,6 @@ async def process_unified_query(
     user_query: str,
     user_id: str = None,
     image_urls: list[str] = None,
-    mentioned_players: list[str] = None,
     requester_name: str = None
 ) -> str:
     """
@@ -63,7 +62,7 @@ async def process_unified_query(
         start_time = time.time()
         
         # First, identify and fetch player data
-        player_task = identify_and_fetch_players(user_query, mentioned_players, requester_name)
+        player_task = identify_and_fetch_players(user_query, requester_name=requester_name)
         player_data_list, player_sources = await player_task
         
         # Determine if this is a player-only query
