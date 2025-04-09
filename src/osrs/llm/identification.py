@@ -4,7 +4,7 @@ import aiohttp
 import google.generativeai as genai
 from config.config import config
 from osrs.llm.image_processing import fetch_image, identify_items_in_images
-from osrs.wiseoldman import get_guild_member_names, fetch_player_details
+from osrs.wiseoldman import get_guild_members, get_guild_member_names, fetch_player_details
 
 async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
     """Use Gemini to identify relevant wiki pages for the query"""
@@ -228,15 +228,18 @@ async def identify_and_fetch_players(user_query: str, requester_name=None):
     player_sources = []
     
     try:
-        # Identify players from the query
-        guild_members = get_guild_member_names()
-        identified_players = await identify_mentioned_players(user_query, guild_members, requester_name)
+        # Get guild members first since we need both names and full data
+        guild_members = get_guild_members()
+        # Extract names from guild members
+        guild_member_names = [member['player']['displayName'] for member in guild_members]
+        identified_players = await identify_mentioned_players(user_query, guild_member_names, requester_name)
 
         if identified_players:
             # Create a single session for all requests
             async with aiohttp.ClientSession() as session:
                 # Create tasks for all player fetches
-                tasks = [fetch_player_details(player_name, session) for player_name in identified_players]
+                # Find matching member data from guild members where displayName matches
+                tasks = [fetch_player_details(next(member['player'] for member in guild_members if member['player']['displayName'] == player_name), session) for player_name in identified_players]
                 
                 # Execute all fetches concurrently
                 print(f"Fetching data for {len(identified_players)} players concurrently...")

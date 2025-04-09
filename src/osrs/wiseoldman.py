@@ -1,6 +1,5 @@
 import json
 import os
-import time
 from datetime import datetime, timezone, timedelta
 import asyncio
 import aiohttp
@@ -118,16 +117,16 @@ def get_guild_members():
             with open(cache_path, 'r', encoding='utf-8') as f:
                 cache_data = json.load(f)
                 
-            # Check if cache is less than 1 hour old
+            # Check if cache is less than 15 minutes old
             last_cached_str = cache_data.get('lastCachedTime', '1970-01-01T00:00:00.000Z')
             # Parse the UTC timestamp string
             last_cached_dt = datetime.strptime(last_cached_str, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
             current_dt = datetime.now(timezone.utc)
-            if current_dt - last_cached_dt < timedelta(hours=1):
-                print(f"Using cached guild members list (less than 1 hour old)")
+            if current_dt - last_cached_dt < timedelta(minutes=15):
+                print(f"Using cached guild members list (less than 15 minutes old)")
                 return cache_data.get('memberships')
             else:
-                print(f"Guild members cache is older than 1 hour, fetching fresh data")
+                print(f"Guild members cache is older than 15 minutes, fetching fresh data")
         except Exception as e:
             print(f"Error reading guild members cache: {e}")
     
@@ -187,42 +186,49 @@ def get_player_cache_path(username):
     # Use players cache directory
     return os.path.join(PLAYERS_CACHE, f"{safe_name}.json")
 
-async def fetch_player_details(username, session=None):
+async def fetch_player_details(player, session=None):
     """
     Fetch player details from the WiseOldMan API with caching
     
     Args:
-        username: The username to fetch details for
+        player: Player object containing displayName and other details
         session: Optional aiohttp ClientSession. If not provided, a new one will be created
     """
+    username = player['displayName']
     # Replace spaces with underscores for API request
     api_username = username.replace(' ', '_')
     
     cache_path = get_player_cache_path(username)
-    current_time = time.time()
     
     # Check for cached data first
     if os.path.exists(cache_path):
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
                 cache_data = json.load(f)
+            
+            cached_data = cache_data.get('player_data', {})
+            current_updated = player.get('updatedAt')
+            current_changed = player.get('lastChangedAt')
+            
+            if current_updated and current_changed:
+                cached_updated = cached_data.get('updatedAt', '1970-01-01T00:00:00.000Z')
+                cached_changed = cached_data.get('lastChangedAt', '1970-01-01T00:00:00.000Z')
                 
-            # Check if cache is less than 1 hour old
-            last_cached_str = cache_data.get('lastFileCachedTime', '1970-01-01T00:00:00.000Z')
-            # Parse the UTC timestamp string, handling potential missing microseconds
-            try:
-                # Try parsing with microseconds
-                last_cached_dt = datetime.strptime(last_cached_str, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
-            except ValueError:
-                # Fallback to parsing without microseconds if needed (older cache format?)
-                last_cached_dt = datetime.strptime(last_cached_str, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
-
-            current_dt = datetime.now(timezone.utc)
-            if current_dt - last_cached_dt < timedelta(hours=1):
-                print(f"Using cached data for player {username} (less than 1 hour old)")
-                return cache_data.get('player_data')
-            else:
-                print(f"Cache for player {username} is older than 1 hour, fetching fresh data")
+                try:
+                    # Parse dates into datetime objects for comparison
+                    cached_updated_dt = datetime.strptime(cached_updated, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+                    cached_changed_dt = datetime.strptime(cached_changed, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+                    current_updated_dt = datetime.strptime(current_updated, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+                    current_changed_dt = datetime.strptime(current_changed, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+                    
+                    if current_updated_dt <= cached_updated_dt and current_changed_dt <= cached_changed_dt:
+                        print(f"Using cached data for player {username} (no updates available)")
+                        return cached_data
+                except ValueError:
+                    # If there's any issue parsing dates, fetch fresh data to be safe
+                    pass
+            
+            print(f"Updates available for player {username}, fetching fresh data")
         except Exception as e:
             print(f"Error reading cache for {username}: {e}")
     
@@ -251,8 +257,7 @@ async def fetch_player_details(username, session=None):
                 os.makedirs(os.path.dirname(cache_path), exist_ok=True)
                 with open(cache_path, 'w', encoding='utf-8') as f:
                     json.dump({
-                        'player_data': player_data,
-                        'lastFileCachedTime': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+                        'player_data': player_data
                     }, f, ensure_ascii=False)
                 
                 return player_data
