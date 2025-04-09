@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from datetime import datetime, timezone, timedelta
 import asyncio
 import aiohttp
 import requests
@@ -118,9 +119,11 @@ def get_guild_members():
                 cache_data = json.load(f)
                 
             # Check if cache is less than 1 hour old
-            last_cached = time.strptime(cache_data.get('lastCachedTime', '1970-01-01T00:00:00.000Z'), '%Y-%m-%dT%H:%M:%S.000Z')
-            cache_age = time.mktime(time.gmtime()) - time.mktime(last_cached)
-            if cache_age < 3600:  # 1 hour in seconds
+            last_cached_str = cache_data.get('lastCachedTime', '1970-01-01T00:00:00.000Z')
+            # Parse the UTC timestamp string
+            last_cached_dt = datetime.strptime(last_cached_str, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+            current_dt = datetime.now(timezone.utc)
+            if current_dt - last_cached_dt < timedelta(hours=1):
                 print(f"Using cached guild members list (less than 1 hour old)")
                 return cache_data.get('memberships')
             else:
@@ -149,7 +152,7 @@ def get_guild_members():
         with open(cache_path, 'w', encoding='utf-8') as f:
             json.dump({
                 'memberships': memberships,
-                'lastCachedTime': time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())
+                'lastCachedTime': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
             }, f, ensure_ascii=False)
         
         return memberships
@@ -205,9 +208,17 @@ async def fetch_player_details(username, session=None):
                 cache_data = json.load(f)
                 
             # Check if cache is less than 1 hour old
-            last_cached = time.strptime(cache_data.get('lastFileCachedTime', '1970-01-01T00:00:00.000Z'), '%Y-%m-%dT%H:%M:%S.000Z')
-            cache_age = time.mktime(time.gmtime()) - time.mktime(last_cached)
-            if cache_age < 3600:  # 1 hour in seconds
+            last_cached_str = cache_data.get('lastFileCachedTime', '1970-01-01T00:00:00.000Z')
+            # Parse the UTC timestamp string, handling potential missing microseconds
+            try:
+                # Try parsing with microseconds
+                last_cached_dt = datetime.strptime(last_cached_str, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+            except ValueError:
+                # Fallback to parsing without microseconds if needed (older cache format?)
+                last_cached_dt = datetime.strptime(last_cached_str, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+
+            current_dt = datetime.now(timezone.utc)
+            if current_dt - last_cached_dt < timedelta(hours=1):
                 print(f"Using cached data for player {username} (less than 1 hour old)")
                 return cache_data.get('player_data')
             else:
@@ -241,7 +252,7 @@ async def fetch_player_details(username, session=None):
                 with open(cache_path, 'w', encoding='utf-8') as f:
                     json.dump({
                         'player_data': player_data,
-                        'lastFileCachedTime': time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())
+                        'lastFileCachedTime': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
                     }, f, ensure_ascii=False)
                 
                 return player_data
