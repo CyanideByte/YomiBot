@@ -6,7 +6,7 @@ import json
 import time
 import asyncio
 import aiohttp
-from config.config import PROJECT_ROOT
+from config.config import PROJECT_ROOT, config
 
 
 # Helper functions for OSRS Wiki integration
@@ -111,7 +111,7 @@ def extract_item_info(html_content):
 async def find_redirect_target(session, url):
     """Find the redirect target URL if a page redirects"""
     headers = {
-        'User-Agent': 'OSRS Wiki Assistant/1.0'
+        'User-Agent': config.user_agent
     }
 
     try:
@@ -197,7 +197,7 @@ async def fetch_osrs_wiki(session, page_name):
     """Fetch content from OSRS wiki page, following redirects if necessary"""
     original_page_name = page_name
     url = f"https://oldschool.runescape.wiki/w/{page_name}"
-    headers = {"User-Agent": "OSRS Wiki Assistant/1.0"}
+    headers = {"User-Agent": config.user_agent}
 
     # Try to load from cache first
     cache_data = load_cached_page(page_name)

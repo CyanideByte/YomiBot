@@ -2,7 +2,7 @@ import requests
 import json
 import os
 import time
-from config.config import PROJECT_ROOT
+from config.config import PROJECT_ROOT, config
 
 # Replace with your clan's group ID
 GROUP_ID = "3773"
@@ -49,7 +49,7 @@ def get_recent_competitions(group_id):
     """
     url = f"{BASE_URL}/{group_id}/competitions"
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers={"User-Agent": config.user_agent})
         response.raise_for_status()
         competitions = response.json()
         competitions.sort(key=lambda x: x["startsAt"], reverse=True)
@@ -120,7 +120,7 @@ def get_guild_members():
         
     # Fetch fresh data from API
     try:
-        response = requests.get(f"{BASE_URL}/{GROUP_ID}/csv")
+        response = requests.get(f"{BASE_URL}/{GROUP_ID}/csv", headers={"User-Agent": config.user_agent})
         response.raise_for_status()
         
         # Split into lines and skip header row
@@ -177,7 +177,8 @@ def fetch_player_details(username):
     # If no valid cache exists, fetch from API
     url = f"https://api.wiseoldman.net/v2/players/{api_username}"
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": config.user_agent
     }
     
     try:
@@ -220,38 +221,46 @@ def format_player_data(player_data):
     output.append(f"Combat Level: {player_data.get('combatLevel', 'N/A')}")
     output.append(f"Total Experience: {player_data.get('exp', 'N/A')}")
     
-    # Skills data
-    if 'latestSnapshot' in player_data and 'data' in player_data['latestSnapshot']:
-        skills_data = player_data['latestSnapshot']['data']['skills']
-        
-        output.append("===== SKILL LEVELS =====")
-        output.append(f"{'Skill':<15} {'Level':<10} {'Experience':<15}")
-        output.append("-" * 40)
-        
-        for skill_name, skill_info in skills_data.items():
-            # Show all skills, and convert -1 values to 0
-            level = skill_info['level'] if skill_info['level'] != -1 else 1
-            experience = skill_info['experience'] if skill_info['experience'] != -1 else 0
-            output.append(f"{skill_name.capitalize():<15} {level:<10} {experience:<15}")
-        
-        output.append("")
-        
-        # Boss kills data
-        bosses_data = player_data['latestSnapshot']['data']['bosses']
-        
-        output.append("===== BOSS KILL COUNTS =====")
-        output.append(f"{'Boss':<25} {'Kills':<10}")
-        output.append("-" * 35)
-        
-        for boss_name, boss_info in bosses_data.items():
-            # Show all bosses, and convert -1 values to 0
-            kills = boss_info['kills'] if boss_info['kills'] != -1 else 0
-            boss_display_name = boss_name.replace('_', ' ').title()
-            if boss_display_name == "Chambers Of Xeric Challenge Mode":
-                boss_display_name = "Chambers Of Xeric (CM)"
-            output.append(f"{boss_display_name:<25} {kills:<10}")
-    else:
-        output.append("No skill or boss data available")
+    # Check if we have all required data
+    if not ('latestSnapshot' in player_data and
+            player_data['latestSnapshot'] is not None and
+            'data' in player_data['latestSnapshot'] and
+            player_data['latestSnapshot']['data'] is not None and
+            'skills' in player_data['latestSnapshot']['data'] and
+            player_data['latestSnapshot']['data']['skills'] is not None and
+            'bosses' in player_data['latestSnapshot']['data'] and
+            player_data['latestSnapshot']['data']['bosses'] is not None):
+        return None  # Return None if any required data is missing
+
+    # If we have all required data, proceed with formatting
+    skills_data = player_data['latestSnapshot']['data']['skills']
+    
+    output.append("===== SKILL LEVELS =====")
+    output.append(f"{'Skill':<15} {'Level':<10} {'Experience':<15}")
+    output.append("-" * 40)
+    
+    for skill_name, skill_info in skills_data.items():
+        # Show all skills, and convert -1 values to 0
+        level = skill_info['level'] if skill_info['level'] != -1 else 1
+        experience = skill_info['experience'] if skill_info['experience'] != -1 else 0
+        output.append(f"{skill_name.capitalize():<15} {level:<10} {experience:<15}")
+    
+    output.append("")
+    
+    # Boss kills data
+    bosses_data = player_data['latestSnapshot']['data']['bosses']
+    
+    output.append("===== BOSS KILL COUNTS =====")
+    output.append(f"{'Boss':<25} {'Kills':<10}")
+    output.append("-" * 35)
+    
+    for boss_name, boss_info in bosses_data.items():
+        # Show all bosses, and convert -1 values to 0
+        kills = boss_info['kills'] if boss_info['kills'] != -1 else 0
+        boss_display_name = boss_name.replace('_', ' ').title()
+        if boss_display_name == "Chambers Of Xeric Challenge Mode":
+            boss_display_name = "Chambers Of Xeric (CM)"
+        output.append(f"{boss_display_name:<25} {kills:<10}")
     
     # Join all lines with newlines and return
     return "\n".join(output)

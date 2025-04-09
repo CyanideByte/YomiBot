@@ -10,8 +10,6 @@ import time
 import hashlib
 from config.config import config, PROJECT_ROOT
 
-# User-Agent string
-USER_AGENT = 'OSRS Wiki Assistant/1.0'
 
 # Sanitize filename to avoid filesystem issues
 def safe_filename(name):
@@ -134,7 +132,7 @@ async def extract_text_from_url(session, page_url):
             return cached_content
             
         print(f"Fetching content from URL: {page_url}")
-        headers = {"User-Agent": USER_AGENT}
+        headers = {"User-Agent": config.user_agent}
         # Use a timeout for the request
         timeout = aiohttp.ClientTimeout(total=10)
         async with session.get(page_url, headers=headers, timeout=timeout, allow_redirects=True) as response:
@@ -170,7 +168,7 @@ async def search_web(search_term):
     # Brave Search query and parameters
     params = {
         "q": f"osrs {search_term}",  # Prefix with osrs to focus results
-        "count": 5
+        "count": 10
     }
     
     # Brave Search API endpoint and headers
@@ -178,7 +176,7 @@ async def search_web(search_term):
     headers = {
         "Accept": "application/json",
         "X-Subscription-Token": config.brave_api_key,
-        "User-Agent": USER_AGENT
+        "User-Agent": config.user_agent
     }
     
     try:
@@ -201,7 +199,8 @@ async def search_web(search_term):
                     
                     # Skip results from runescape.fandom.com and runescape.wiki
                     # but allow oldschool.runescape.wiki
-                    if not link or "runescape.fandom.com" in link or (
+                    # reddit.com blocks bot requests 403 forbidden
+                    if not link or "runescape.fandom.com" in link or "reddit.com" in link or (
                         "runescape.wiki" in link and "oldschool.runescape.wiki" not in link
                     ):
                         if link: print(f"Skipping excluded domain: {link}")

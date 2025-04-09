@@ -90,15 +90,19 @@ async def process_unified_query(
         data_fetch_time = time.time() - start_time
         print(f"Data fetching completed in {data_fetch_time:.2f} seconds")
         
-        # Format player data for context if available
+        # Format player data and track valid players for sources
         player_context = ""
+        valid_players = []
         if player_data_list:
             for player_data in player_data_list:
-                player_name = player_data.get('displayName', 'Unknown player')
-                player_context += f"\n===== {player_name} DATA =====\n"
-                player_context += format_player_data(player_data)
-                player_context += "\n\n"
-            print(f"Formatted data for {len(player_data_list)} players")
+                formatted_data = format_player_data(player_data)
+                if formatted_data is not None:
+                    player_name = player_data.get('displayName', 'Unknown player')
+                    player_context += f"\n===== {player_name} DATA =====\n"
+                    player_context += formatted_data
+                    player_context += "\n\n"
+                    valid_players.append(player_data)
+            print(f"Formatted data for {len(valid_players)} out of {len(player_data_list)} players")
         
         # Use text-based approach for response formatting
         model = genai.GenerativeModel(config.gemini_model)
@@ -201,11 +205,17 @@ async def process_unified_query(
             return f"Error: Failed to generate response - {str(e)}"
         response_time = time.time() - response_start_time
         print(f"Generated response in {response_time:.2f} seconds")
+        # Filter sources to only include valid players
+        valid_player_sources = [
+            source for source in player_sources
+            if any(p.get('displayName', '').lower() == source.get('name', '').lower() for p in valid_players)
+        ]
+        
         # For player-only queries, simplify source handling
         if is_player_only:
-            # Build sources section with just player sources
+            # Build sources section with just valid player sources
             sources_section = "\n\nSources:"
-            for source in player_sources:
+            for source in valid_player_sources:
                 if 'url' in source:
                     sources_section += f"\n- <{source['url']}>"
             
@@ -217,7 +227,7 @@ async def process_unified_query(
                 response += sources_section
         else:
             # Normal source handling for non-player-only queries
-            response = ensure_all_sources_included(response, player_sources, wiki_sources, web_sources)
+            response = ensure_all_sources_included(response, valid_player_sources, wiki_sources, web_sources)
         
         
         # Clean wiki URLs

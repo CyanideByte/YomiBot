@@ -25,6 +25,7 @@ class Config:
         self.gemini_api_key = None
         self.brave_api_key = None
         self.gemini_model = "gemini-2.0-flash"
+        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         self.load_config()
     
     def load_config(self):
