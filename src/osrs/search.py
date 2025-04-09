@@ -211,13 +211,13 @@ async def search_web(search_term):
                 for result in results:
                     title = result.get("title", "Untitled")
                     link = result.get("url")
+                    # Skip unwanted URLs
+                    excluded_terms = ["runescape.fandom.com", "runehq.com", "runefanatics.com", "reddit.com", "quora.com", "youtube.com", "twitch.tv", "playerauctions.com", "rpgstash.com", "eldorado.gg", "probemas.com", "runelocus.com", "rsps-list.com", "chicksgold.com", "g2g.com", "food4rs.com", "partypeteshop.com", "rsorder.com", "ezrsgold.com", "scythe.org", "luckycharmsgold.com", "top100arena.com", "rsgoldfast.com", "topg.org"]
                     
-                    # Skip results from runescape.fandom.com and runescape.wiki
-                    # but allow oldschool.runescape.wiki
-                    if not link or "runescape.fandom.com" in link or "reddit.com" in link or "playerauctions.com" in link or "rsps" in link or (
+                    if not link or any(term in link.lower() for term in excluded_terms) or (
                         "runescape.wiki" in link and "oldschool.runescape.wiki" not in link
                     ):
-                        if link: print(f"Skipping excluded domain: {link}")
+                        if link: print(f"Skipping excluded URL: {link}")
                         continue
                         
                     print(f"\nQueueing content fetch for: {title}\n{link}")
