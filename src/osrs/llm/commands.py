@@ -71,13 +71,12 @@ def register_commands(bot):
                 # Use identify_mentioned_players to find the player
                 guild_members = get_guild_members()
                 identified_players = await identify_mentioned_players(user_query, guild_members, ctx.author.display_name)
-                
                 if not identified_players:
-                    await processing_msg.edit(content=f"Could not find any players matching '{user_query}'. Are you sure they exist? Maybe they're too irrelevant to roast.")
-                    return
-                
-                # Use the first identified player
-                target_player = identified_players[0]
+                    # If no players found in guild, try the user query directly
+                    target_player = user_query
+                else:
+                    # Use the first identified player
+                    target_player = identified_players[0]
 
             await processing_msg.edit(content=f"Preparing a savage roast for {target_player}...")
             
