@@ -25,7 +25,7 @@ ensure_cache_directories()
 # Cache for guild members list
 _guild_members_cache = {
     'data': None,
-    'timestamp': 0
+    'lastFileCachedTime': '1970-01-01T00:00:00.000Z'
 }
 
 # List of OSRS skills
@@ -113,8 +113,8 @@ def get_guild_members():
     Otherwise, fetches fresh data from the API.
     """
     import time
-    current_time = time.time()
-    cache_age = current_time - _guild_members_cache['timestamp']
+    last_cached = time.strptime(_guild_members_cache['lastFileCachedTime'], '%Y-%m-%dT%H:%M:%S.000Z')
+    cache_age = time.mktime(time.gmtime()) - time.mktime(last_cached)
     
     # If cache is valid (less than 1 hour old) and contains data
     if _guild_members_cache['data'] is not None and cache_age < 3600:
@@ -132,7 +132,7 @@ def get_guild_members():
         
         # Update cache
         _guild_members_cache['data'] = members
-        _guild_members_cache['timestamp'] = current_time
+        _guild_members_cache['lastFileCachedTime'] = time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())
         
         return members
     except requests.exceptions.RequestException as e:
@@ -171,7 +171,8 @@ async def fetch_player_details(username, session=None):
                 cache_data = json.load(f)
                 
             # Check if cache is less than 1 hour old
-            cache_age = current_time - cache_data.get('timestamp', 0)
+            last_cached = time.strptime(cache_data.get('lastFileCachedTime', '1970-01-01T00:00:00.000Z'), '%Y-%m-%dT%H:%M:%S.000Z')
+            cache_age = time.mktime(time.gmtime()) - time.mktime(last_cached)
             if cache_age < 3600:  # 1 hour in seconds
                 print(f"Using cached data for player {username} (less than 1 hour old)")
                 return cache_data.get('player_data')
@@ -203,7 +204,7 @@ async def fetch_player_details(username, session=None):
                 with open(cache_path, 'w', encoding='utf-8') as f:
                     json.dump({
                         'player_data': player_data,
-                        'timestamp': current_time
+                        'lastFileCachedTime': time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())
                     }, f, ensure_ascii=False)
                 
                 return player_data
