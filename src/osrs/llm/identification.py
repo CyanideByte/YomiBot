@@ -67,8 +67,9 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
             print("Identified wiki pages: []")
             return []
             
-        page_names = [name.strip() for name in response_text.split(',') if name.strip()][:5]
-        print(f"Identified wiki pages: {page_names}")
+        # Normalize page names to use underscores
+        page_names = [name.strip().replace(' ', '_') for name in response_text.split(',') if name.strip()][:5]
+        print(f"Identified wiki pages (normalized): {page_names}")
         return page_names
         
     except Exception as e:
@@ -296,12 +297,13 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
                 
                 # Check if it's an OSRS wiki page
                 if "oldschool.runescape.wiki/w/" in url:
-                    # Extract the page name from the URL
-                    page_name = url.split("/w/")[-1]
-                    
-                    # Check if this page is already in our list to avoid duplicates
-                    if page_name not in wiki_page_names:
-                        wiki_page_names.append(page_name)
+                    # Extract the page name from the URL and normalize it (underscores, case doesn't matter for comparison)
+                    page_name = url.split("/w/")[-1].replace(' ', '_')
+                    normalized_name = page_name.lower() # Lowercase for comparison
+
+                    # Check if a variant of this page is already in our list (case-insensitive)
+                    if not any(existing.lower() == normalized_name for existing in wiki_page_names):
+                        wiki_page_names.append(page_name) # Add the name with original casing but underscores
                         print(f"Added wiki page from search results: {page_name}")
                         
                         # If we have 5 wiki pages, stop adding more
@@ -312,28 +314,41 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
                     non_wiki_sources.append(result)
         
         # Now fetch all wiki pages we've identified
-        if wiki_page_names:
-            print(f"Fetching wiki pages: {', '.join(wiki_page_names)}")
-            
-            # Fetch content from identified wiki pages
-            wiki_content, redirects = await fetch_osrs_wiki_pages(wiki_page_names)
+        # Ensure all page names use underscores before fetching
+        normalized_wiki_page_names = [name.replace(' ', '_') for name in wiki_page_names]
+        # Remove duplicates after normalization
+        unique_normalized_names = sorted(list(set(normalized_wiki_page_names)))
+
+        if unique_normalized_names:
+            print(f"Fetching wiki pages: {', '.join(unique_normalized_names)}")
+
+            # Fetch content from identified wiki pages using normalized names
+            wiki_content, redirects, rejected_pages = await fetch_osrs_wiki_pages(unique_normalized_names)
             
             # Update page_names with redirected names for correct source URLs
-            for page in wiki_page_names:
-                redirected_page = redirects.get(page, page)
-                updated_page_names.append(redirected_page)
+            # Use the unique normalized names list to build sources, applying redirects
+            for page in unique_normalized_names:
+                # Find the final redirected name (which should also be normalized with underscores)
+                # The redirects dict keys might have spaces, so normalize them for lookup if needed
+                normalized_page_lookup = page.replace(' ', '_')
+                redirected_page = redirects.get(normalized_page_lookup, normalized_page_lookup)
+
+                # Ensure the final name uses underscores for the URL
+                final_page_name_underscores = redirected_page.replace(' ', '_')
                 
-                # Add to sources
-                wiki_url = f"https://oldschool.runescape.wiki/w/{redirected_page.replace(' ', '_')}"
-                wiki_sources.append({
-                    'type': 'wiki',
-                    'name': redirected_page,
-                    'url': wiki_url
-                })
+                # Skip rejected pages from sources
+                if final_page_name_underscores not in rejected_pages:
+                    updated_page_names.append(final_page_name_underscores) # Keep track of final names
+                    wiki_url = f"https://oldschool.runescape.wiki/w/{final_page_name_underscores}"
+                    wiki_sources.append({
+                        'type': 'wiki',
+                        'name': final_page_name_underscores, # Use the name with underscores
+                        'url': wiki_url
+                    })
             
-            print(f"Retrieved content from {len(wiki_page_names)} wiki pages")
+            print(f"Retrieved content from {len(unique_normalized_names)} wiki pages")
             if redirects:
-                print(f"Followed redirects: {redirects}")
+                print(f"Followed redirects (original -> final normalized): {redirects}")
         
         # If we have non-wiki sources, format them and append to wiki_content
         if non_wiki_sources:

@@ -39,8 +39,8 @@ def load_cached_search(search_term):
         cache_age = current_time - cache_data['timestamp']
 
         # If cache is less than 1 hour old, mark it as fresh
-        if cache_age < 60 * 60:
-            print(f"Using fresh search cache for '{search_term}' (less than 1 hour old)")
+        if cache_age < 24 * 60 * 60:
+            print(f"Using fresh search cache for '{search_term}' (less than 24 hours old)")
             return cache_data['results']
 
         # Check if cache has expired (24 hours)
@@ -214,7 +214,7 @@ async def search_web(search_term):
                     
                     # Skip results from runescape.fandom.com and runescape.wiki
                     # but allow oldschool.runescape.wiki
-                    if not link or "runescape.fandom.com" in link or "reddit.com" in link or (
+                    if not link or "runescape.fandom.com" in link or "reddit.com" in link or "playerauctions.com" in link or "rsps" in link or (
                         "runescape.wiki" in link and "oldschool.runescape.wiki" not in link
                     ):
                         if link: print(f"Skipping excluded domain: {link}")

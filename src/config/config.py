@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
 # Cache directory paths
 CACHE_ROOT = PROJECT_ROOT / 'cache'
 WIKI_CACHE = CACHE_ROOT / 'wiki'
+ARTICLE_CACHE = WIKI_CACHE / 'articles'
 WOM_CACHE = CACHE_ROOT / 'wiseoldman'
 PLAYERS_CACHE = WOM_CACHE / 'players'
 SEARCH_CACHE = CACHE_ROOT / 'search'
@@ -29,6 +30,7 @@ else:
 def ensure_cache_directories():
     """Ensure the cache directories exist"""
     os.makedirs(WIKI_CACHE, exist_ok=True)
+    os.makedirs(ARTICLE_CACHE, exist_ok=True)
     os.makedirs(WOM_CACHE, exist_ok=True)
     os.makedirs(PLAYERS_CACHE, exist_ok=True)
     os.makedirs(SEARCH_CACHE, exist_ok=True)
