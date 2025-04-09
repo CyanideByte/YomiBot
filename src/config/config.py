@@ -43,7 +43,7 @@ class Config:
         self.wise_old_man_api_key = None
         self.wise_old_man_user_agent = None
         self.gemini_model = "gemini-2.0-flash"
-        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        self.user_agent = "YomiBot"
         ensure_cache_directories()  # Ensure cache directories exist on startup
         self.load_config()
     

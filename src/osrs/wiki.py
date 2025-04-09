@@ -111,7 +111,10 @@ def extract_item_info(html_content):
 async def find_redirect_target(session, url):
     """Find the redirect target URL if a page redirects"""
     headers = {
-        'User-Agent': config.user_agent
+        'User-Agent': config.user_agent,
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
+        'Accept-Encoding': 'gzip, deflate, br, zstd'
     }
 
     try:
@@ -177,8 +180,12 @@ def load_cached_page(page_name):
 def save_to_cache(page_name, data, headers):
     """Save page data and headers to cache"""
     cache_path = get_cache_path(page_name)
+    print(f"Attempting to save cache at: {cache_path}")
+    
     # Create cache directory if it doesn't exist
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    dir_path = os.path.dirname(cache_path)
+    os.makedirs(dir_path, exist_ok=True)
+    print(f"Verified directory exists: {os.path.exists(dir_path)}")
     
     cache_data = {
         'content': data,
@@ -186,18 +193,28 @@ def save_to_cache(page_name, data, headers):
         'etag': headers.get('ETag'),
         'last_modified': headers.get('Last-Modified')
     }
+    print(f"Cache data prepared, content length: {len(data)}")
 
     try:
         with open(cache_path, 'w', encoding='utf-8') as f:
             json.dump(cache_data, f, ensure_ascii=False)
+            print(f"Successfully wrote cache file: {cache_path}")
     except Exception as e:
-        print(f"Error saving cache for {page_name}: {e}")
+        print(f"Failed to write cache file: {cache_path}")
+        print(f"Directory exists: {os.path.exists(dir_path)}")
+        print(f"Directory writable: {os.access(dir_path, os.W_OK)}")
+        raise Exception(f"Error saving cache for {page_name}: {e}")
 
 async def fetch_osrs_wiki(session, page_name):
     """Fetch content from OSRS wiki page, following redirects if necessary"""
     original_page_name = page_name
     url = f"https://oldschool.runescape.wiki/w/{page_name}"
-    headers = {"User-Agent": config.user_agent}
+    headers = {
+        'User-Agent': config.user_agent,
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
+        'Accept-Encoding': 'gzip, deflate, br, zstd'
+    }
 
     # Try to load from cache first
     cache_data = load_cached_page(page_name)
@@ -223,15 +240,24 @@ async def fetch_osrs_wiki(session, page_name):
         page_name = redirected_page_name
         url = redirect_url # Use the potentially new URL
 
-    async with session.get(url, headers=headers) as response:
+    async with session.get(url, headers=headers, allow_redirects=True) as response:
+        print(f"\nDEBUG: Response status code: {response.status}")
+        print(f"DEBUG: Response headers: {dict(response.headers)}")
+        print(f"DEBUG: Request URL: {url}")
+        print(f"DEBUG: Final URL after redirects: {str(response.url)}")
+
         if response.status == 304 and cache_data:
+            print("DEBUG: Hit 304 path")
             # Not modified, use cached content
             print(f"Server validated cache is still fresh (304 Not Modified)")
             print(f"Cache validation headers: ETag={headers.get('If-None-Match')}, Last-Modified={headers.get('If-Modified-Since')}")
             html_content = cache_data['content']
         elif response.status == 200:
+            print("DEBUG: Hit 200 path")
+            print("Got 200 response, preparing to save to cache")
             # Save new content to cache
             html_content = await response.text()
+            print(f"Retrieved content length: {len(html_content)}")
             response_headers = response.headers
             if not cache_data:
                 print(f"No cache exists for {page_name}")
@@ -243,12 +269,23 @@ async def fetch_osrs_wiki(session, page_name):
                 else:
                     # This case shouldn't happen if 304 was handled, but good for logging
                     print(f"Cache expired or headers mismatch, fetching new content.")
-            print(f"Saving new content to cache with headers: ETag={response_headers.get('ETag')}, Last-Modified={response_headers.get('Last-Modified')}")
-            save_to_cache(page_name, html_content, response_headers)
+            print(f"About to save to cache with headers: ETag={response_headers.get('ETag')}, Last-Modified={response_headers.get('Last-Modified')}")
+            try:
+                save_to_cache(page_name, html_content, response_headers)
+                print("Cache save completed")
+            except Exception as e:
+                print(f"Failed to save cache: {e}")
+                print(f"Exception details: {str(e)}")
         else:
+            print(f"DEBUG: Hit error path with status {response.status}")
+            error_msg = ""
             if response.status == 404:
-                return f"Page not found - This item/content may be unreleased or not exist in OSRS yet.", original_page_name, page_name
-            return f"Failed to download page: {url} (Status code: {response.status})", original_page_name, page_name
+                error_msg = f"Page not found - This item/content may be unreleased or not exist in OSRS yet."
+            elif response.status == 403:
+                error_msg = f"Access denied by Cloudflare anti-bot protection. Status code: 403"
+            else:
+                error_msg = f"Failed to download page: {url} (Status code: {response.status})"
+            raise Exception(error_msg)
 
     info = extract_item_info(html_content)
     output = ""

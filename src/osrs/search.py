@@ -132,12 +132,27 @@ async def extract_text_from_url(session, page_url):
             return cached_content
             
         print(f"Fetching content from URL: {page_url}")
-        headers = {"User-Agent": config.user_agent}
+        headers = {
+            'User-Agent': config.user_agent,
+            'Accept': '*/*',
+            'Connection': 'keep-alive',
+            'Accept-Encoding': 'gzip, deflate, br, zstd'
+        }
         # Use a timeout for the request
         timeout = aiohttp.ClientTimeout(total=10)
         async with session.get(page_url, headers=headers, timeout=timeout, allow_redirects=True) as response:
             if response.status == 200:
-                html_content = await response.text()
+                try:
+                    # Try UTF-8 first
+                    html_content = await response.text(encoding='utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        # Fall back to latin-1 which can handle any byte sequence
+                        html_content = await response.text(encoding='latin-1')
+                    except Exception as e:
+                        print(f"Failed to decode content from {page_url}: {e}")
+                        return None
+                
                 soup = BeautifulSoup(html_content, "html.parser")
                 for tag in soup(["script", "style", "noscript"]):
                     tag.decompose()
@@ -175,8 +190,8 @@ async def search_web(search_term):
     search_url = "https://api.search.brave.com/res/v1/web/search"
     headers = {
         "Accept": "application/json",
-        "X-Subscription-Token": config.brave_api_key,
-        "User-Agent": config.user_agent
+        "Accept-Encoding": "gzip",
+        "X-Subscription-Token": config.brave_api_key
     }
     
     try:
@@ -199,7 +214,7 @@ async def search_web(search_term):
                     
                     # Skip results from runescape.fandom.com and runescape.wiki
                     # but allow oldschool.runescape.wiki
-                    if not link or "runescape.fandom.com" in link or (
+                    if not link or "runescape.fandom.com" in link or "reddit.com" in link or (
                         "runescape.wiki" in link and "oldschool.runescape.wiki" not in link
                     ):
                         if link: print(f"Skipping excluded domain: {link}")
