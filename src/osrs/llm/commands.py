@@ -1,7 +1,7 @@
 # Discord command registration
 import aiohttp
 from osrs.llm.query_processing import process_unified_query, roast_player
-from osrs.wiseoldman import fetch_player_details, get_guild_members
+from osrs.wiseoldman import fetch_player_details, get_guild_member_names
 from osrs.llm.identification import identify_mentioned_players
 
 def register_commands(bot):
@@ -69,7 +69,7 @@ def register_commands(bot):
                 target_player = ctx.author.display_name
             else:
                 # Use identify_mentioned_players to find the player
-                guild_members = get_guild_members()
+                guild_members = get_guild_member_names()
                 identified_players = await identify_mentioned_players(user_query, guild_members, ctx.author.display_name)
                 if not identified_players:
                     # If no players found in guild, try the user query directly

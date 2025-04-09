@@ -4,17 +4,15 @@ import time
 import asyncio
 import aiohttp
 import requests
-from config.config import PROJECT_ROOT, config, PLAYERS_CACHE
+from config.config import PROJECT_ROOT, config, PLAYERS_CACHE, WOM_CACHE
 
 # Replace with your clan's group ID
 GROUP_ID = "3773"
 BASE_URL = "https://api.wiseoldman.net/v2/groups"
 
-# Cache for guild members list
-_guild_members_cache = {
-    'data': None,
-    'lastCachedTime': '1970-01-01T00:00:00.000Z'
-}
+def get_guild_cache_path():
+    """Get the cache file path for guild members"""
+    return os.path.join(WOM_CACHE, "guild_members.json")
 
 # List of OSRS skills
 SKILLS = [
@@ -39,7 +37,15 @@ def get_recent_competitions(group_id):
     """
     url = f"{BASE_URL}/{group_id}/competitions"
     try:
-        response = requests.get(url, headers={"User-Agent": config.user_agent})
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": config.wise_old_man_user_agent or config.user_agent
+        }
+        
+        if config.wise_old_man_api_key:
+            headers["x-api-key"] = config.wise_old_man_api_key
+            
+        response = requests.get(url, headers=headers)
         response.raise_for_status()
         competitions = response.json()
         competitions.sort(key=lambda x: x["startsAt"], reverse=True)
@@ -96,40 +102,80 @@ def setup_competition_commands(bot):
 
 def get_guild_members():
     """
-    Returns a list of guild member names.
+    Returns the guild's membership data from the WiseOldMan API.
     If the cache is less than an hour old, returns cached data.
     Otherwise, fetches fresh data from the API.
-    """
-    import time
-    last_cached = time.strptime(_guild_members_cache['lastCachedTime'], '%Y-%m-%dT%H:%M:%S.000Z')
-    cache_age = time.mktime(time.gmtime()) - time.mktime(last_cached)
     
-    # If cache is valid (less than 1 hour old) and contains data
-    if _guild_members_cache['data'] is not None and cache_age < 3600:
-        return _guild_members_cache['data']
-        
+    Returns:
+        list: A list of membership objects containing player data
+    """
+    cache_path = get_guild_cache_path()
+    
+    # Check for cached data first
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+                
+            # Check if cache is less than 1 hour old
+            last_cached = time.strptime(cache_data.get('lastCachedTime', '1970-01-01T00:00:00.000Z'), '%Y-%m-%dT%H:%M:%S.000Z')
+            cache_age = time.mktime(time.gmtime()) - time.mktime(last_cached)
+            if cache_age < 3600:  # 1 hour in seconds
+                print(f"Using cached guild members list (less than 1 hour old)")
+                return cache_data.get('memberships')
+            else:
+                print(f"Guild members cache is older than 1 hour, fetching fresh data")
+        except Exception as e:
+            print(f"Error reading guild members cache: {e}")
+    
     # Fetch fresh data from API
     try:
-        response = requests.get(f"{BASE_URL}/{GROUP_ID}/csv", headers={"User-Agent": config.user_agent})
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": config.wise_old_man_user_agent or config.user_agent
+        }
+        
+        if config.wise_old_man_api_key:
+            headers["x-api-key"] = config.wise_old_man_api_key
+            
+        response = requests.get(f"{BASE_URL}/{GROUP_ID}", headers=headers)
         response.raise_for_status()
+        group_data = response.json()
         
-        # Split into lines and skip header row
-        lines = response.text.strip().split('\n')[1:]
-        # Extract just the Player names (first column)
-        members = [line.split(',')[0] for line in lines]
+        memberships = group_data.get('memberships', [])
         
-        # Update cache
-        _guild_members_cache['data'] = members
-        _guild_members_cache['lastCachedTime'] = time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())
+        # Save to cache
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                'memberships': memberships,
+                'lastCachedTime': time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())
+            }, f, ensure_ascii=False)
         
-        return members
+        return memberships
     except requests.exceptions.RequestException as e:
         print(f"Error fetching guild members: {e}")
         # If we have cached data, return it even if expired
-        if _guild_members_cache['data'] is not None:
-            print("Returning expired cached data due to API error")
-            return _guild_members_cache['data']
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+                    print("Returning expired cached data due to API error")
+                    return cache_data.get('memberships', [])
+            except Exception as e:
+                print(f"Error reading expired cache: {e}")
         return []
+
+def get_guild_member_names():
+    """
+    Returns a list of guild member display names.
+    Uses get_guild_members() but extracts only the display names.
+    
+    Returns:
+        list: A list of member display names
+    """
+    memberships = get_guild_members()
+    return [member['player']['displayName'] for member in memberships]
 
 def get_player_cache_path(username):
     """Get the cache file path for a given player name"""
@@ -173,8 +219,11 @@ async def fetch_player_details(username, session=None):
     url = f"https://api.wiseoldman.net/v2/players/{api_username}"
     headers = {
         "Content-Type": "application/json",
-        "User-Agent": config.user_agent
+        "User-Agent": config.wise_old_man_user_agent or config.user_agent
     }
+    
+    if config.wise_old_man_api_key:
+        headers["x-api-key"] = config.wise_old_man_api_key
     
     try:
         should_close_session = False

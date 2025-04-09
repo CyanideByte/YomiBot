@@ -4,7 +4,7 @@ import aiohttp
 import google.generativeai as genai
 from config.config import config
 from osrs.llm.image_processing import fetch_image, identify_items_in_images
-from osrs.wiseoldman import get_guild_members, fetch_player_details
+from osrs.wiseoldman import get_guild_member_names, fetch_player_details
 
 async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
     """Use Gemini to identify relevant wiki pages for the query"""
@@ -228,7 +228,7 @@ async def identify_and_fetch_players(user_query: str, requester_name=None):
     
     try:
         # Identify players from the query
-        guild_members = get_guild_members()
+        guild_members = get_guild_member_names()
         identified_players = await identify_mentioned_players(user_query, guild_members, requester_name)
 
         if identified_players:

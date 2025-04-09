@@ -40,6 +40,8 @@ class Config:
         self.spotify_credentials = None
         self.gemini_api_key = None
         self.brave_api_key = None
+        self.wise_old_man_api_key = None
+        self.wise_old_man_user_agent = None
         self.gemini_model = "gemini-2.0-flash"
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         ensure_cache_directories()  # Ensure cache directories exist on startup
@@ -51,6 +53,7 @@ class Config:
         self._load_spotify_credentials()
         self._load_gemini_config()
         self._load_brave_config()
+        self._load_wise_old_man_config()
     
     def _load_bot_token(self):
         """Load bot token from environment variable or fallback to file"""
@@ -128,6 +131,25 @@ class Config:
         
         if not self.brave_api_key:
             print("Warning: BRAVE_API_KEY environment variable is not set")
+    
+    def _load_wise_old_man_config(self):
+        """Load Wise Old Man API configuration from environment variables"""
+        self.wise_old_man_api_key = os.getenv('WISE_OLD_MAN_API_KEY')
+        
+        # Debug information
+        print(f"WISE_OLD_MAN_API_KEY from environment: {'Found' if self.wise_old_man_api_key else 'Not found'}")
+        
+        if not self.wise_old_man_api_key:
+            print("Warning: WISE_OLD_MAN_API_KEY environment variable is not set")
+        
+        # Also load the user agent
+        self.wise_old_man_user_agent = os.getenv('WISE_OLD_MAN_USER_AGENT')
+        
+        # Debug information
+        print(f"WISE_OLD_MAN_USER_AGENT from environment: {'Found' if self.wise_old_man_user_agent else 'Not found'}")
+        
+        if not self.wise_old_man_user_agent:
+            print("Warning: WISE_OLD_MAN_USER_AGENT environment variable is not set")
 
 # Create a singleton instance
 config = Config()
