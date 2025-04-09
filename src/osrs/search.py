@@ -8,7 +8,7 @@ import asyncio
 import json
 import time
 import hashlib
-from config.config import config, PROJECT_ROOT
+from config.config import config, PROJECT_ROOT, SEARCH_CACHE, PAGES_CACHE
 
 
 # Sanitize filename to avoid filesystem issues
@@ -21,8 +21,8 @@ def get_search_cache_path(search_term):
     """Get the cache file path for a given search term"""
     safe_term = re.sub(r'[^\w\s-]', '', search_term)
     safe_term = re.sub(r'[\s-]+', '_', safe_term).strip('_')[:50]
-    # Use project root directory for cache folder
-    return os.path.join(PROJECT_ROOT, 'cache', 'search', f"{safe_term}.json")
+    # Use search cache directory
+    return os.path.join(SEARCH_CACHE, f"{safe_term}.json")
 
 def load_cached_search(search_term):
     """Load search results from cache if they exist and are valid"""
@@ -76,8 +76,8 @@ def get_page_cache_path(url):
     """Get the cache file path for a page URL"""
     # Use MD5 hash of URL as filename to avoid issues with special characters
     url_hash = hashlib.md5(url.encode()).hexdigest()
-    # Use project root directory for cache folder
-    return os.path.join(PROJECT_ROOT, 'cache', 'pages', f"{url_hash}.json")
+    # Use pages cache directory
+    return os.path.join(PAGES_CACHE, f"{url_hash}.json")
 
 def load_cached_page_content(url):
     """Load page content from cache if it exists and is valid"""

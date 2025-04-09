@@ -4,28 +4,16 @@ import time
 import asyncio
 import aiohttp
 import requests
-from config.config import PROJECT_ROOT, config
+from config.config import PROJECT_ROOT, config, PLAYERS_CACHE
 
 # Replace with your clan's group ID
 GROUP_ID = "3773"
 BASE_URL = "https://api.wiseoldman.net/v2/groups"
 
-def ensure_cache_directories():
-    """Ensure the cache directories exist"""
-    wiki_cache = os.path.join(PROJECT_ROOT, 'cache', 'wiki')
-    wom_cache = os.path.join(PROJECT_ROOT, 'cache', 'wiseoldman')
-    
-    # Create cache directories if they don't exist
-    os.makedirs(wiki_cache, exist_ok=True)
-    os.makedirs(wom_cache, exist_ok=True)
-
-# Create cache directories when module is loaded
-ensure_cache_directories()
-
 # Cache for guild members list
 _guild_members_cache = {
     'data': None,
-    'lastFileCachedTime': '1970-01-01T00:00:00.000Z'
+    'lastCachedTime': '1970-01-01T00:00:00.000Z'
 }
 
 # List of OSRS skills
@@ -113,7 +101,7 @@ def get_guild_members():
     Otherwise, fetches fresh data from the API.
     """
     import time
-    last_cached = time.strptime(_guild_members_cache['lastFileCachedTime'], '%Y-%m-%dT%H:%M:%S.000Z')
+    last_cached = time.strptime(_guild_members_cache['lastCachedTime'], '%Y-%m-%dT%H:%M:%S.000Z')
     cache_age = time.mktime(time.gmtime()) - time.mktime(last_cached)
     
     # If cache is valid (less than 1 hour old) and contains data
@@ -132,7 +120,7 @@ def get_guild_members():
         
         # Update cache
         _guild_members_cache['data'] = members
-        _guild_members_cache['lastFileCachedTime'] = time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())
+        _guild_members_cache['lastCachedTime'] = time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())
         
         return members
     except requests.exceptions.RequestException as e:
@@ -147,8 +135,8 @@ def get_player_cache_path(username):
     """Get the cache file path for a given player name"""
     # Normalize the username - lowercase and replace spaces with underscores
     safe_name = username.lower().replace(' ', '_')
-    # Use project root directory for cache folder
-    return os.path.join(PROJECT_ROOT, 'cache', 'wiseoldman', f"{safe_name}.json")
+    # Use players cache directory
+    return os.path.join(PLAYERS_CACHE, f"{safe_name}.json")
 
 async def fetch_player_details(username, session=None):
     """

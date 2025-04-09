@@ -7,6 +7,14 @@ from dotenv import load_dotenv
 # Get the project root directory (2 levels up from this file)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
 
+# Cache directory paths
+CACHE_ROOT = PROJECT_ROOT / 'cache'
+WIKI_CACHE = CACHE_ROOT / 'wiki'
+WOM_CACHE = CACHE_ROOT / 'wiseoldman'
+PLAYERS_CACHE = WOM_CACHE / 'players'
+SEARCH_CACHE = CACHE_ROOT / 'search'
+PAGES_CACHE = SEARCH_CACHE / 'pages'
+
 # Load environment variables from .env file
 dotenv_path = PROJECT_ROOT / '.env'
 if dotenv_path.exists():
@@ -18,6 +26,14 @@ else:
     load_dotenv()
 
 # Configuration class to handle loading and storing bot configuration
+def ensure_cache_directories():
+    """Ensure the cache directories exist"""
+    os.makedirs(WIKI_CACHE, exist_ok=True)
+    os.makedirs(WOM_CACHE, exist_ok=True)
+    os.makedirs(PLAYERS_CACHE, exist_ok=True)
+    os.makedirs(SEARCH_CACHE, exist_ok=True)
+    os.makedirs(PAGES_CACHE, exist_ok=True)
+
 class Config:
     def __init__(self):
         self.bot_token = None
@@ -26,6 +42,7 @@ class Config:
         self.brave_api_key = None
         self.gemini_model = "gemini-2.0-flash"
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ensure_cache_directories()  # Ensure cache directories exist on startup
         self.load_config()
     
     def load_config(self):

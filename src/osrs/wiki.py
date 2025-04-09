@@ -6,7 +6,7 @@ import json
 import time
 import asyncio
 import aiohttp
-from config.config import PROJECT_ROOT, config
+from config.config import PROJECT_ROOT, config, WIKI_CACHE
 
 
 # Helper functions for OSRS Wiki integration
@@ -140,8 +140,8 @@ async def find_redirect_target(session, url):
 def get_cache_path(page_name):
     """Get the cache file path for a given page name"""
     safe_name = page_name.replace('/', '_').replace('\\', '_')
-    # Use project root directory for cache folder
-    return os.path.join(PROJECT_ROOT, 'cache', 'wiki', f"{safe_name}.json")
+    # Use wiki cache directory
+    return os.path.join(WIKI_CACHE, f"{safe_name}.json")
 
 def load_cached_page(page_name):
     """Load a page from cache if it exists and is valid"""
