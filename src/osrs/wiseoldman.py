@@ -215,10 +215,6 @@ async def fetch_player_details(username, session=None):
         print(f"Error fetching player details for {username}: {e}")
         return None
 
-# Sync version for backward compatibility
-def fetch_player_details_sync(username):
-    """Synchronous version of fetch_player_details for backward compatibility"""
-    return asyncio.run(fetch_player_details(username))
 
 def format_player_data(player_data):
     """

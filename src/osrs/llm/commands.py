@@ -1,4 +1,5 @@
 # Discord command registration
+import aiohttp
 from osrs.llm.query_processing import process_unified_query, roast_player
 from osrs.wiseoldman import fetch_player_details, get_guild_members
 from osrs.llm.identification import identify_mentioned_players
@@ -81,7 +82,8 @@ def register_commands(bot):
             await processing_msg.edit(content=f"Preparing a savage roast for {target_player}...")
             
             # Fetch player details
-            player_data = fetch_player_details_sync(target_player)
+            async with aiohttp.ClientSession() as session:
+                player_data = await fetch_player_details(target_player, session)
             
             if not player_data:
                 await processing_msg.edit(content=f"Couldn't find any stats for '{target_player}'. They're so irrelevant they don't even show up on WiseOldMan.")
