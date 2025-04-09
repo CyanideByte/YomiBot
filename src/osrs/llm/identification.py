@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import aiohttp
 import google.generativeai as genai
 from config.config import config
 from osrs.llm.image_processing import fetch_image, identify_items_in_images
@@ -229,19 +230,31 @@ async def identify_and_fetch_players(user_query: str, requester_name=None):
         # Identify players from the query
         guild_members = get_guild_members()
         identified_players = await identify_mentioned_players(user_query, guild_members, requester_name)
-        
-        for player_name in identified_players:
-            player_data = fetch_player_details(player_name)
-            if player_data:
-                player_data_list.append(player_data)
+
+        if identified_players:
+            # Create a single session for all requests
+            async with aiohttp.ClientSession() as session:
+                # Create tasks for all player fetches
+                tasks = [fetch_player_details(player_name, session) for player_name in identified_players]
                 
-                # Add to sources
-                player_url = f"https://wiseoldman.net/players/{player_name.lower().replace(' ', '_')}"
-                player_sources.append({
-                    'type': 'wiseoldman',
-                    'name': player_name,
-                    'url': player_url
-                })
+                # Execute all fetches concurrently
+                print(f"Fetching data for {len(identified_players)} players concurrently...")
+                player_data_results = await asyncio.gather(*tasks)
+                
+                # Process results
+                for player_name, player_data in zip(identified_players, player_data_results):
+                    if player_data:
+                        player_data_list.append(player_data)
+                        
+                        # Add to sources
+                        player_url = f"https://wiseoldman.net/players/{player_name.lower().replace(' ', '_')}"
+                        player_sources.append({
+                            'type': 'wiseoldman',
+                            'name': player_name,
+                            'url': player_url
+                        })
+                
+                print(f"Successfully fetched data for {len(player_data_list)} out of {len(identified_players)} players")
                 
         return player_data_list, player_sources
     except Exception as e:

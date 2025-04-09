@@ -81,7 +81,7 @@ def register_commands(bot):
             await processing_msg.edit(content=f"Preparing a savage roast for {target_player}...")
             
             # Fetch player details
-            player_data = fetch_player_details(target_player)
+            player_data = fetch_player_details_sync(target_player)
             
             if not player_data:
                 await processing_msg.edit(content=f"Couldn't find any stats for '{target_player}'. They're so irrelevant they don't even show up on WiseOldMan.")

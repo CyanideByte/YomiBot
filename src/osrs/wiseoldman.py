@@ -1,7 +1,9 @@
-import requests
 import json
 import os
 import time
+import asyncio
+import aiohttp
+import requests
 from config.config import PROJECT_ROOT, config
 
 # Replace with your clan's group ID
@@ -148,9 +150,13 @@ def get_player_cache_path(username):
     # Use project root directory for cache folder
     return os.path.join(PROJECT_ROOT, 'cache', 'wiseoldman', f"{safe_name}.json")
 
-def fetch_player_details(username):
+async def fetch_player_details(username, session=None):
     """
     Fetch player details from the WiseOldMan API with caching
+    
+    Args:
+        username: The username to fetch details for
+        session: Optional aiohttp ClientSession. If not provided, a new one will be created
     """
     # Replace spaces with underscores for API request
     api_username = username.replace(' ', '_')
@@ -182,22 +188,37 @@ def fetch_player_details(username):
     }
     
     try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()  # Raise an exception for non-200 status codes
-        player_data = response.json()
-        
-        # Save to cache
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump({
-                'player_data': player_data,
-                'timestamp': current_time
-            }, f, ensure_ascii=False)
-        
-        return player_data
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching player details: {e}")
+        should_close_session = False
+        if session is None:
+            session = aiohttp.ClientSession()
+            should_close_session = True
+            
+        try:
+            async with session.get(url, headers=headers) as response:
+                response.raise_for_status()  # Raise an exception for non-200 status codes
+                player_data = await response.json()
+                
+                # Save to cache
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                with open(cache_path, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        'player_data': player_data,
+                        'timestamp': current_time
+                    }, f, ensure_ascii=False)
+                
+                return player_data
+        finally:
+            if should_close_session:
+                await session.close()
+                
+    except Exception as e:
+        print(f"Error fetching player details for {username}: {e}")
         return None
+
+# Sync version for backward compatibility
+def fetch_player_details_sync(username):
+    """Synchronous version of fetch_player_details for backward compatibility"""
+    return asyncio.run(fetch_player_details(username))
 
 def format_player_data(player_data):
     """

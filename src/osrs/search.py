@@ -168,7 +168,7 @@ async def search_web(search_term):
     # Brave Search query and parameters
     params = {
         "q": f"osrs {search_term}",  # Prefix with osrs to focus results
-        "count": 10
+        "count": 5
     }
     
     # Brave Search API endpoint and headers
@@ -199,8 +199,7 @@ async def search_web(search_term):
                     
                     # Skip results from runescape.fandom.com and runescape.wiki
                     # but allow oldschool.runescape.wiki
-                    # reddit.com blocks bot requests 403 forbidden
-                    if not link or "runescape.fandom.com" in link or "reddit.com" in link or (
+                    if not link or "runescape.fandom.com" in link or (
                         "runescape.wiki" in link and "oldschool.runescape.wiki" not in link
                     ):
                         if link: print(f"Skipping excluded domain: {link}")
