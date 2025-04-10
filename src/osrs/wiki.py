@@ -244,6 +244,7 @@ async def fetch_osrs_wiki(session, page_name):
     """Fetch content from OSRS wiki page, following redirects if necessary"""
     original_page_name = page_name
     url = f"https://oldschool.runescape.wiki/w/{page_name}"
+    redirected_page_name = None  # Initialize as None
     headers = {
         'User-Agent': config.user_agent,
         'Accept': '*/*',
@@ -300,12 +301,13 @@ async def fetch_osrs_wiki(session, page_name):
                 print(f"Using cached content for redirected page {redirected_page_name}")
                 return cache_data['content'], original_page_name, redirected_page_name
                 
-        # Update the page name and URL to use redirected version
-        page_name = redirected_page_name
-        url = redirect_url
-        
+        # Update the page name and URL to use redirected version if we have one
+        if redirected_page_name:
+            page_name = redirected_page_name
+            url = redirect_url
+             
         # If we already have the content from the redirect check, use it
-        if page_content:
+        if page_content and redirected_page_name:
             # Save redirected page to cache
             try:
                 response_headers = {'ETag': None, 'Last-Modified': None}  # Basic headers since we don't have the actual response
@@ -440,6 +442,7 @@ async def fetch_osrs_wiki_pages(page_names):
     # Process results
     for i, result in enumerate(results):
         if isinstance(result, Exception):
+            print("ERROR: ", result)
             combined_content += f"\n\n{'='*50} ERROR FETCHING PAGE {page_names[i]} {'='*50}\n\nError: {result}\n"
         else:
             page_content, original_name, redirected_name = result
