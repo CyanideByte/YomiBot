@@ -13,7 +13,6 @@ BASE_URL = "https://api.wiseoldman.net/v2/groups"
 def get_guild_cache_path():
     """Get the cache file path for guild members"""
     return os.path.join(WOM_CACHE, "guild_members.json")
-
 # List of OSRS skills
 SKILLS = [
     "attack", "strength", "defence", "ranged", "prayer", "magic", "runecrafting",
@@ -22,6 +21,42 @@ SKILLS = [
     "firemaking", "woodcutting", "farming"
 ]
 
+# Predefined metric names for OSRS
+SKILL_METRICS = [
+    'overall', 'attack', 'defence', 'strength', 'hitpoints', 'ranged', 'prayer', 'magic',
+    'cooking', 'woodcutting', 'fletching', 'fishing', 'firemaking', 'crafting', 'smithing',
+    'mining', 'herblore', 'agility', 'thieving', 'slayer', 'farming', 'runecrafting',
+    'hunter', 'construction'
+]
+
+ACTIVITY_METRICS = [
+    'league_points', 'bounty_hunter_hunter', 'bounty_hunter_rogue', 'clue_scrolls_all',
+    'clue_scrolls_beginner', 'clue_scrolls_easy', 'clue_scrolls_medium', 'clue_scrolls_hard',
+    'clue_scrolls_elite', 'clue_scrolls_master', 'last_man_standing', 'pvp_arena',
+    'soul_wars_zeal', 'guardians_of_the_rift', 'colosseum_glory', 'collections_logged'
+]
+
+BOSS_METRICS = [
+    'abyssal_sire', 'alchemical_hydra', 'amoxliatl', 'araxxor', 'artio', 'barrows_chests',
+    'bryophyta', 'callisto', 'calvarion', 'cerberus', 'chambers_of_xeric',
+    'chambers_of_xeric_challenge_mode', 'chaos_elemental', 'chaos_fanatic', 'commander_zilyana',
+    'corporeal_beast', 'crazy_archaeologist', 'dagannoth_prime', 'dagannoth_rex',
+    'dagannoth_supreme', 'deranged_archaeologist', 'duke_sucellus', 'general_graardor',
+    'giant_mole', 'grotesque_guardians', 'hespori', 'kalphite_queen', 'king_black_dragon',
+    'kraken', 'kreearra', 'kril_tsutsaroth', 'lunar_chests', 'mimic', 'nex', 'nightmare',
+    'phosanis_nightmare', 'obor', 'phantom_muspah', 'sarachnis', 'scorpia', 'scurrius',
+    'skotizo', 'sol_heredit', 'spindel', 'tempoross', 'the_gauntlet', 'the_corrupted_gauntlet',
+    'the_hueycoatl', 'the_leviathan', 'the_royal_titans', 'the_whisperer', 'theatre_of_blood',
+    'theatre_of_blood_hard_mode', 'thermonuclear_smoke_devil', 'tombs_of_amascut',
+    'tombs_of_amascut_expert', 'tzkal_zuk', 'tztok_jad', 'vardorvis', 'venenatis', 'vetion',
+    'vorkath', 'wintertodt', 'zalcano', 'zulrah'
+]
+
+COMPUTED_METRICS = ['ehp', 'ehb']
+
+# Combine all metrics for validation
+ALL_METRICS = SKILL_METRICS + ACTIVITY_METRICS + BOSS_METRICS + COMPUTED_METRICS
+
 def transform_metric_name(metric):
     """
     Removes 'the_' prefix if present and capitalizes the metric words.
@@ -29,6 +64,55 @@ def transform_metric_name(metric):
     if metric.startswith("the_"):
         metric = metric[4:]
     return " ".join(word.capitalize() for word in metric.split("_"))
+
+def fetch_metric(metric: str):
+    """
+    Fetches scoreboard data for a given metric and returns a list of key-value pairs
+    with player names and values.
+    
+    Args:
+        metric (str): The metric to fetch data for (e.g., 'chambers_of_xeric', 'fishing', etc.)
+        
+    Returns:
+        list: List of dictionaries with 'name' and 'value' keys
+    """
+    url = f"{BASE_URL}/{GROUP_ID}/hiscores?metric={metric}&limit=500"
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": config.wise_old_man_user_agent or config.user_agent
+    }
+    
+    if config.wise_old_man_api_key:
+        headers["x-api-key"] = config.wise_old_man_api_key
+        
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    
+    data = response.json()
+    possible_keys = ["kills", "level", "score", "value"]
+    
+    scoreboard = []
+    for entry in data:
+        player_name = entry["player"]["displayName"]
+        value = None
+        key_used = None
+        for key in possible_keys:
+            if key in entry["data"]:
+                value = entry["data"][key]
+                key_used = key
+                break
+        
+        # Handle unset values (-1)
+        if value == -1:
+            if key_used == "level":
+                value = 1  # Use 1 for unset level values
+            else:
+                value = 0  # Use 0 for all other unset values
+        
+        if value is not None:
+            scoreboard.append({"name": player_name, "value": value})
+    
+    return sorted(scoreboard, key=lambda x: x["value"], reverse=True)
 
 def get_recent_competitions(group_id):
     """
@@ -332,6 +416,51 @@ def format_player_data(player_data):
         if boss_display_name == "Chambers Of Xeric Challenge Mode":
             boss_display_name = "Chambers Of Xeric (CM)"
         output.append(f"{boss_display_name:<25} {kills:<10}")
+    # Join all lines with newlines and return
+    return "\n".join(output)
+
+def format_metrics(metrics_data):
+    """
+    Format metrics data into a text list of each player and their metrics.
     
+    Args:
+        metrics_data (dict): Dictionary mapping metric names to their scoreboard data
+        
+    Returns:
+        str: Formatted text with player metrics
+    """
+    if not metrics_data:
+        return "No metrics data available."
+    
+    output = []
+    
+    # Add header
+    output.append("CLAN METRICS")
+    
+    # Process each metric
+    for metric_name, scoreboard in metrics_data.items():
+        # Transform the metric name for display (e.g., "chambers_of_xeric" -> "Chambers Of Xeric")
+        display_name = transform_metric_name(metric_name)
+        output.append(f"\n**{display_name}**")
+        
+        # Add player data for this metric
+        for i, entry in enumerate(scoreboard):  # Include all players
+            player_name = entry["name"]
+            value = entry["value"]
+            
+            # Format the value based on the metric type
+            if metric_name in SKILL_METRICS:
+                # For skills, show level
+                formatted_value = f"Level {value}"
+            elif "kills" in str(value).lower() or metric_name in BOSS_METRICS:
+                # For boss metrics, show KC
+                formatted_value = f"{value} KC"
+            else:
+                # For other metrics, just show the value
+                formatted_value = str(value)
+            
+            # Add rank number and format the line in a simple format
+            output.append(f"{i+1}. {player_name}: {formatted_value}")
+        
     # Join all lines with newlines and return
     return "\n".join(output)

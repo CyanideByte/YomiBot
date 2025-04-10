@@ -212,7 +212,7 @@ async def search_web(search_term):
                     title = result.get("title", "Untitled")
                     link = result.get("url")
                     # Skip unwanted URLs
-                    excluded_terms = ["runescape.fandom.com", "reddit.com", "quora.com", "youtube.com", "twitch.tv", "github.com",
+                    excluded_terms = ["runescape.fandom.com", "reddit.com", "quora.com", "youtube.com", "twitch.tv", "github.com", "x.com", "twitter.com",
                                       "playerauctions.com", "rpgstash.com", "eldorado.gg", "probemas.com", "chicksgold.com", "g2g.com", "food4rs.com", "partypeteshop.com", "rsorder.com", "ezrsgold.com", "rsgoldfast.com", "virtgold.com", "luckycharmsgold.com",
                                       "osbuddy.com", "osbot.org", "runemate.com", "osrsbots.com", "oldschoolscripts.com", "dreambot.org", "epicbot.com", "tribot.org", "robotzindisguise.com",
                                       "topg.org", "runelocus.com", "rsps-list.com", "scythe.org", "top100arena.com"]

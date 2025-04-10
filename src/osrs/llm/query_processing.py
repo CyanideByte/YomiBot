@@ -3,9 +3,9 @@ import time
 import re
 import google.generativeai as genai
 from config.config import config
-from osrs.llm.identification import identify_and_fetch_players, identify_and_fetch_wiki_pages, is_player_only_query, is_prohibited_query
+from osrs.llm.identification import identify_and_fetch_players, identify_and_fetch_wiki_pages, identify_and_fetch_metrics, is_player_only_query, is_prohibited_query
 from osrs.llm.source_management import ensure_all_sources_included, clean_url_patterns
-from osrs.wiseoldman import format_player_data
+from osrs.wiseoldman import format_player_data, format_metrics
 
 # System prompt for Gemini
 # Unified system prompt for both player data and wiki information
@@ -114,7 +114,114 @@ async def process_unified_query(
             await status_message.edit(content="Finding players...")
             
         player_task = identify_and_fetch_players(user_query, requester_name=requester_name)
-        player_data_list, player_sources = await player_task
+        player_data_list, player_sources, is_all_members = await player_task
+        
+        # If query is about all members, fetch metrics data
+        metrics_data = {}
+        if is_all_members:
+            if status_message:
+                await status_message.edit(content="Fetching clan metrics...")
+            
+            metrics_task = identify_and_fetch_metrics(user_query)
+            metrics_data = await metrics_task
+            
+            # Format metrics data for display
+            metrics_context = format_metrics(metrics_data)
+            
+            # Use metrics data to generate response
+            model = genai.GenerativeModel(config.gemini_model)
+            
+            prompt = f"""
+            {UNIFIED_SYSTEM_PROMPT}
+            
+            User Query: {user_query}
+            
+            Clan Metrics Data:
+            {metrics_context}
+            
+            This query is about clan-wide metrics. Use the provided metrics data to answer the query.
+            Do not speculate about information not present in the metrics data.
+            """
+            
+            # Add formatting instructions
+            prompt += """
+            
+            Provide a response following these specific formatting rules:
+            1. Start with a **Section Header**
+            2. Use - for list items (not bullet points)
+            3. Bold ONLY:
+               - Player names (e.g., **PlayerName**)
+               - Item names (e.g., **Abyssal whip**)
+               - Monster/boss names (e.g., **Abyssal demon**)
+               - Location names (e.g., **Wilderness**)
+               - Section headers
+            4. Do NOT bold:
+               - Drop rates
+               - Prices
+               - Combat stats
+               - Other numerical values
+            5. ALWAYS include sources at the end of your response:
+               - You MUST start a new paragraph with the exact text "Sources:" (including the colon)
+               - The "Sources:" header MUST be on its own line
+               - List each source URL on its own line with a hyphen (-) bullet point
+               - Format ALL sources consistently as: "- <URL>" (no prefixes like "Player data:")
+               - Example:
+                 
+                 Sources:
+                 - <https://wiseoldman.net/groups/3773/hiscores>
+               
+               - Do NOT add empty lines between sources
+               - Do NOT include duplicate URLs in the sources section
+               - Include ALL relevant sources
+               - The "Sources:" header is ABSOLUTELY REQUIRED for ALL responses
+               - NEVER list URLs without the "Sources:" header
+            """
+            
+            try:
+                if status_message:
+                    await status_message.edit(content="Generating response...")
+                    
+                generation = await asyncio.to_thread(
+                    lambda: model.generate_content(prompt)
+                )
+                if generation is None:
+                    raise ValueError("Gemini model returned None")
+                if not generation.text:
+                    raise ValueError("Gemini model returned empty response")
+                response = generation.text.strip()
+                if not response:
+                    raise ValueError("Gemini model returned whitespace-only response")
+                
+                # Build sources for each metric
+                sources_section = "\n\nSources:"
+                for metric_name in metrics_data.keys():
+                    source_url = f"https://wiseoldman.net/groups/3773/hiscores?metric={metric_name}"
+                    sources_section += f"\n- <{source_url}>"
+
+                # Ensure response has "Sources:" section with all metric URLs
+                if "Sources:" not in response:
+                    response += sources_section
+                else:
+                    # Replace existing sources section with our metric-specific sources
+                    response = re.sub(r'\n\nSources:.*$', sources_section, response, flags=re.DOTALL)
+                
+                # Clean URLs
+                for metric_name in metrics_data.keys():
+                    source_url = f"https://wiseoldman.net/groups/3773/hiscores?metric={metric_name}"
+                    response = clean_url_patterns(response, source_url)
+                
+                # Truncate if too long for Discord
+                response = response[:1900] + "\n\n(Response length exceeded)" if len(response) > 1900 else response
+                
+                # Update status message with final response
+                if status_message:
+                    await status_message.edit(content=response)
+                    
+                return response
+                
+            except Exception as e:
+                print(f"Failed to generate metrics response: {e}")
+                return f"Error: Failed to generate metrics response - {str(e)}"
         
         # Determine if this is a player-only query
         is_player_only = False

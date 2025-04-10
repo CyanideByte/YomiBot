@@ -4,7 +4,43 @@ import aiohttp
 import google.generativeai as genai
 from config.config import config
 from osrs.llm.image_processing import fetch_image, identify_items_in_images
-from osrs.wiseoldman import get_guild_members, get_guild_member_names, fetch_player_details
+from osrs.wiseoldman import get_guild_members, get_guild_member_names, fetch_player_details, fetch_metric
+
+# Predefined metric names for OSRS
+SKILL_METRICS = [
+    'overall', 'attack', 'defence', 'strength', 'hitpoints', 'ranged', 'prayer', 'magic',
+    'cooking', 'woodcutting', 'fletching', 'fishing', 'firemaking', 'crafting', 'smithing',
+    'mining', 'herblore', 'agility', 'thieving', 'slayer', 'farming', 'runecrafting',
+    'hunter', 'construction'
+]
+
+ACTIVITY_METRICS = [
+    'league_points', 'bounty_hunter_hunter', 'bounty_hunter_rogue', 'clue_scrolls_all',
+    'clue_scrolls_beginner', 'clue_scrolls_easy', 'clue_scrolls_medium', 'clue_scrolls_hard',
+    'clue_scrolls_elite', 'clue_scrolls_master', 'last_man_standing', 'pvp_arena',
+    'soul_wars_zeal', 'guardians_of_the_rift', 'colosseum_glory', 'collections_logged'
+]
+
+BOSS_METRICS = [
+    'abyssal_sire', 'alchemical_hydra', 'amoxliatl', 'araxxor', 'artio', 'barrows_chests',
+    'bryophyta', 'callisto', 'calvarion', 'cerberus', 'chambers_of_xeric',
+    'chambers_of_xeric_challenge_mode', 'chaos_elemental', 'chaos_fanatic', 'commander_zilyana',
+    'corporeal_beast', 'crazy_archaeologist', 'dagannoth_prime', 'dagannoth_rex',
+    'dagannoth_supreme', 'deranged_archaeologist', 'duke_sucellus', 'general_graardor',
+    'giant_mole', 'grotesque_guardians', 'hespori', 'kalphite_queen', 'king_black_dragon',
+    'kraken', 'kreearra', 'kril_tsutsaroth', 'lunar_chests', 'mimic', 'nex', 'nightmare',
+    'phosanis_nightmare', 'obor', 'phantom_muspah', 'sarachnis', 'scorpia', 'scurrius',
+    'skotizo', 'sol_heredit', 'spindel', 'tempoross', 'the_gauntlet', 'the_corrupted_gauntlet',
+    'the_hueycoatl', 'the_leviathan', 'the_royal_titans', 'the_whisperer', 'theatre_of_blood',
+    'theatre_of_blood_hard_mode', 'thermonuclear_smoke_devil', 'tombs_of_amascut',
+    'tombs_of_amascut_expert', 'tzkal_zuk', 'tztok_jad', 'vardorvis', 'venenatis', 'vetion',
+    'vorkath', 'wintertodt', 'zalcano', 'zulrah'
+]
+
+COMPUTED_METRICS = ['ehp', 'ehb']
+
+# Combine all metrics for validation
+ALL_METRICS = SKILL_METRICS + ACTIVITY_METRICS + BOSS_METRICS + COMPUTED_METRICS
 
 async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
     """Use Gemini to identify relevant wiki pages for the query"""
@@ -118,7 +154,7 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
         - "Show me my KC compared to Steve" (includes requester name)
         - "List tob KCs for me, Soup, Tovo, and Phug"
 
-        If the user refers to themself (ex: I/me etc, but not 'yourself' as that refers to the bot) then include the Requester name in the list.
+        If the user asks something about themself (ex: I/me etc, but not 'yourself' as that refers to the bot) then include the Requester name in the list.
         For multiple specific members, prioritize the most relevant ones to stay within the 10 member limit.
 
         Requester name: {requester_name or 'Unknown'}
@@ -314,7 +350,12 @@ async def is_prohibited_query(user_query: str) -> bool:
 
 
 async def identify_and_fetch_players(user_query: str, requester_name=None):
-    """Identify mentioned players in the query and fetch their data"""
+    """
+    Identify mentioned players in the query and fetch their data
+    
+    Returns:
+        tuple: (player_data_list, player_sources, is_all_members)
+    """
     player_data_list = []
     player_sources = []
     
@@ -326,8 +367,7 @@ async def identify_and_fetch_players(user_query: str, requester_name=None):
         identified_players, is_all_members = await identify_mentioned_players(user_query, guild_member_names, requester_name)
 
         if is_all_members:
-            print("TODO: extract comparison metric list from https://api.wiseoldman.net/v2/groups/3773/hiscores?metric=giant_mole&limit=50")
-            return [], []
+            return [], [], True
 
         if identified_players:
             # Create a single session for all requests
@@ -355,10 +395,10 @@ async def identify_and_fetch_players(user_query: str, requester_name=None):
                 
                 print(f"Successfully fetched data for {len(player_data_list)} out of {len(identified_players)} players")
                 
-        return player_data_list, player_sources
+        return player_data_list, player_sources, False
     except Exception as e:
         print(f"Error identifying and fetching players: {e}")
-        return [], []
+        return [], [], False
 
 async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status_message=None):
     """Identify and fetch wiki pages and web search results"""
@@ -490,3 +530,188 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
     except Exception as e:
         print(f"Error identifying and fetching wiki pages: {e}")
         return "", [], [], []
+
+async def identify_mentioned_metrics(user_query: str) -> list:
+    """
+    Use Gemini to identify mentioned metrics (skills, bosses, activities) in the query
+    
+    Args:
+        user_query: The user's query text
+        
+    Returns:
+        list: List of identified metrics that match our predefined list
+    """
+    if not config.gemini_api_key:
+        print("Gemini API key not set")
+        return []
+        
+    try:
+        model = genai.GenerativeModel(config.gemini_model)
+        
+        # Format the metrics lists for the prompt
+        skills_str = ", ".join(SKILL_METRICS)
+        activities_str = ", ".join(ACTIVITY_METRICS)
+        bosses_str = ", ".join(BOSS_METRICS)
+        computed_str = ", ".join(COMPUTED_METRICS)
+        
+        prompt = f"""
+        You are an assistant that identifies Old School RuneScape (OSRS) metrics mentioned in user queries.
+        
+        Available metrics:
+        
+        Skills: {skills_str}
+        
+        Activities: {activities_str}
+        
+        Bosses: {bosses_str}
+        
+        Computed: {computed_str}
+        
+        Analyze the following user query and identify any metrics (skills, bosses, activities) that are explicitly mentioned or clearly implied.
+        
+        User query: "{user_query}"
+        
+        Rules:
+        1. Only include metrics that are explicitly mentioned or clearly implied in the query
+        2. Return metrics in their exact format from the lists above (lowercase with underscores)
+        3. If multiple metrics are mentioned, list them all
+        4. If no metrics are mentioned, respond with "none"
+        5. Common abbreviations should be mapped to their full metric name:
+           - "cox" = "chambers_of_xeric"
+           - "tob" = "theatre_of_blood"
+           - "toa" = "tombs_of_amascut"
+           - "cm" or "cox cm" = "chambers_of_xeric_challenge_mode"
+           - "hm tob" or "hard tob" = "theatre_of_blood_hard_mode"
+           - "expert toa" = "tombs_of_amascut_expert"
+        
+        Respond ONLY with a comma-separated list of identified metrics, or "none" if no metrics are mentioned.
+        """
+        
+        generation = await asyncio.to_thread(
+            lambda: model.generate_content(prompt)
+        )
+        response_text = generation.text.strip().lower()
+        
+        if response_text == "none":
+            print("No metrics identified in query")
+            return []
+            
+        # Parse the comma-separated list of metrics and explicitly normalize them
+        mentioned_metrics = []
+        for metric in response_text.split(','):
+            if metric.strip():
+                # Explicitly lowercase and replace spaces with underscores
+                normalized_metric = metric.strip().lower().replace(' ', '_')
+                mentioned_metrics.append(normalized_metric)
+        
+        # Filter to only include metrics that match our predefined list
+        valid_metrics = [metric for metric in mentioned_metrics if metric in ALL_METRICS]
+        
+        print(f"Identified metrics: {valid_metrics}")
+        return valid_metrics
+        
+    except Exception as e:
+        print(f"Error identifying mentioned metrics: {e}")
+        return []
+
+async def identify_and_fetch_metrics(user_query: str):
+    """
+    Identify mentioned metrics in the query and fetch their data
+    
+    Args:
+        user_query: The user's query text
+        
+    Returns:
+        dict: Dictionary mapping metric names to their scoreboard data
+    """
+    metrics_data = {}
+    
+    try:
+        # Identify metrics mentioned in the query
+        identified_metrics = await identify_mentioned_metrics(user_query)
+        
+        if not identified_metrics:
+            print("No metrics identified in query")
+            return metrics_data
+            
+        print(f"Fetching data for {len(identified_metrics)} metrics...")
+        
+        # Fetch data for each identified metric
+        for metric in identified_metrics:
+            try:
+                scoreboard = fetch_metric(metric)
+                metrics_data[metric] = scoreboard
+                print(f"Successfully fetched data for metric: {metric}")
+            except Exception as e:
+                print(f"Error fetching data for metric {metric}: {e}")
+                
+        print(f"Successfully fetched data for {len(metrics_data)} out of {len(identified_metrics)} metrics")
+        return metrics_data
+        
+    except Exception as e:
+        print(f"Error identifying and fetching metrics: {e}")
+        return {}
+    
+    try:
+        model = genai.GenerativeModel(config.gemini_model)
+        
+        # Format the metrics lists for the prompt
+        skills_str = ", ".join(SKILL_METRICS)
+        activities_str = ", ".join(ACTIVITY_METRICS)
+        bosses_str = ", ".join(BOSS_METRICS)
+        computed_str = ", ".join(COMPUTED_METRICS)
+        
+        prompt = f"""
+        You are an assistant that identifies Old School RuneScape (OSRS) metrics mentioned in user queries.
+        
+        Available metrics:
+        
+        Skills: {skills_str}
+        
+        Activities: {activities_str}
+        
+        Bosses: {bosses_str}
+        
+        Computed: {computed_str}
+        
+        Analyze the following user query and identify any metrics (skills, bosses, activities) that are explicitly mentioned or clearly implied.
+        
+        User query: "{user_query}"
+        
+        Rules:
+        1. Only include metrics that are explicitly mentioned or clearly implied in the query
+        2. Return metrics in their exact format from the lists above (lowercase with underscores)
+        3. If multiple metrics are mentioned, list them all
+        4. If no metrics are mentioned, respond with "none"
+        5. Common abbreviations should be mapped to their full metric name:
+           - "cox" = "chambers_of_xeric"
+           - "tob" = "theatre_of_blood"
+           - "toa" = "tombs_of_amascut"
+           - "cm" or "cox cm" = "chambers_of_xeric_challenge_mode"
+           - "hm tob" or "hard tob" = "theatre_of_blood_hard_mode"
+           - "expert toa" = "tombs_of_amascut_expert"
+        
+        Respond ONLY with a comma-separated list of identified metrics, or "none" if no metrics are mentioned.
+        """
+        
+        generation = await asyncio.to_thread(
+            lambda: model.generate_content(prompt)
+        )
+        response_text = generation.text.strip().lower()
+        
+        if response_text == "none":
+            print("No metrics identified in query")
+            return []
+            
+        # Parse the comma-separated list of metrics
+        mentioned_metrics = [metric.strip() for metric in response_text.split(',') if metric.strip()]
+        
+        # Filter to only include metrics that match our predefined list
+        valid_metrics = [metric for metric in mentioned_metrics if metric in ALL_METRICS]
+        
+        print(f"Identified metrics: {valid_metrics}")
+        return valid_metrics
+        
+    except Exception as e:
+        print(f"Error identifying mentioned metrics: {e}")
+        return []
