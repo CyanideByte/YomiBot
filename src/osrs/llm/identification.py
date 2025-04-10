@@ -103,7 +103,7 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
             
         # Normalize page names to use underscores
         page_names = [name.strip().replace(' ', '_') for name in response_text.split(',') if name.strip()][:5]
-        print(f"Identified wiki pages (normalized): {page_names}")
+        print(f"Identified wiki pages: {page_names}")
         return page_names
         
     except Exception as e:
@@ -144,6 +144,16 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
         - "Show me everyone's Zulrah KC"
         - "Compare all members' Slayer levels"
         - "Who is the best PvMer in the clan?"
+        
+        Examples that should return [NO_MEMBERS]:
+        - "What's the best gear for Zulrah?"
+        - "How do I complete Dragon Slayer 2?"
+        - "What are the drop rates for Vorkath?"
+        - "When was Chambers of Xeric released?"
+        - "Tell me about the Inferno"
+        - "What's the fastest way to train Runecrafting?"
+        - "How much does an Abyssal whip cost?"
+        - "Whats the price of an abyssal whip?"
         
         Examples that should return specific members:
         - "Compare Bob and Alice's stats"
@@ -401,130 +411,93 @@ async def identify_and_fetch_players(user_query: str, requester_name=None):
 async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status_message=None):
     """Identify and fetch wiki pages and web search results"""
     wiki_content = ""
+    updated_page_names = []
     wiki_sources = []
     web_sources = []
-    search_results = None  # Initialize search_results variable to store the first call result
     
     try:
         # Import here to avoid circular imports
         from osrs.search import get_web_search_context, format_search_results
         from osrs.wiki import fetch_osrs_wiki_pages
         
-        # Identify relevant wiki pages, potentially using image analysis
+        # First identify and fetch wiki content
         page_names = await identify_wiki_pages(user_query, image_urls)
-        
-        # Set up variables for content and page tracking
-        updated_page_names = []
-        wiki_page_names = page_names.copy()  # Make a copy to avoid modifying the original
-        non_wiki_sources = []
-        
-        # If we have less than 5 wiki pages identified or none at all, perform web search
-        if len(wiki_page_names) < 5:
-            print(f"Found {len(wiki_page_names)} wiki pages, performing web search...")
+        if page_names:
+            # Normalize page names
+            normalized_wiki_page_names = [name.replace(' ', '_') for name in page_names]
+            unique_normalized_names = sorted(list(set(normalized_wiki_page_names)))
             
-            # Get search results directly
-            if status_message:
-                await status_message.edit(content="Performing web search...")
-            search_results = await get_web_search_context(user_query)
-            
-            # Process each search result
-            for result in search_results:
-                url = result.get('url', '')
-                
-                # Check if it's an OSRS wiki page
-                if "oldschool.runescape.wiki/w/" in url:
-                    # Extract the page name from the URL and normalize it (underscores, case doesn't matter for comparison)
-                    page_name = url.split("/w/")[-1].replace(' ', '_')
-                    normalized_name = page_name.lower() # Lowercase for comparison
-
-                    # Check if a variant of this page is already in our list (case-insensitive)
-                    if not any(existing.lower() == normalized_name for existing in wiki_page_names):
-                        wiki_page_names.append(page_name) # Add the name with original casing but underscores
-                        print(f"Added wiki page from search results: {page_name}")
-                        
-                        # If we have 5 wiki pages, stop adding more
-                        if len(wiki_page_names) >= 5:
-                            break
-                else:
-                    # This is not a wiki page, add to non-wiki sources
-                    non_wiki_sources.append(result)
-        
-        # Now fetch all wiki pages we've identified
-        # Ensure all page names use underscores before fetching
-        normalized_wiki_page_names = [name.replace(' ', '_') for name in wiki_page_names]
-        # Remove duplicates after normalization
-        unique_normalized_names = sorted(list(set(normalized_wiki_page_names)))
-
-        if unique_normalized_names:
             print(f"Fetching wiki pages: {', '.join(unique_normalized_names)}")
-
-            # Fetch content from identified wiki pages using normalized names
             wiki_content, redirects, rejected_pages = await fetch_osrs_wiki_pages(unique_normalized_names)
             
-            # Update page_names with redirected names for correct source URLs
-            # Use the unique normalized names list to build sources, applying redirects
+            # Process redirects and build wiki sources
             for page in unique_normalized_names:
-                # Find the final redirected name (which should also be normalized with underscores)
-                # The redirects dict keys might have spaces, so normalize them for lookup if needed
                 normalized_page_lookup = page.replace(' ', '_')
                 redirected_page = redirects.get(normalized_page_lookup, normalized_page_lookup)
-
-                # Ensure the final name uses underscores for the URL
-                final_page_name_underscores = redirected_page.replace(' ', '_')
+                final_page_name = redirected_page.replace(' ', '_')
                 
-                # Skip rejected pages from sources
-                if final_page_name_underscores not in rejected_pages:
-                    updated_page_names.append(final_page_name_underscores) # Keep track of final names
-                    wiki_url = f"https://oldschool.runescape.wiki/w/{final_page_name_underscores}"
+                if final_page_name not in rejected_pages:
+                    updated_page_names.append(final_page_name)
+                    wiki_url = f"https://oldschool.runescape.wiki/w/{final_page_name}"
                     wiki_sources.append({
                         'type': 'wiki',
-                        'name': final_page_name_underscores, # Use the name with underscores
+                        'name': final_page_name,
                         'url': wiki_url
                     })
-            
-            print(f"Retrieved content from {len(unique_normalized_names)} wiki pages")
-            if redirects:
-                print(f"Followed redirects (original -> final normalized): {redirects}")
         
-        # If we have non-wiki sources, format them and append to wiki_content
-        if non_wiki_sources:
-            print(f"Adding {len(non_wiki_sources)} non-wiki sources to context")
-            non_wiki_content = format_search_results(non_wiki_sources)
-            wiki_content += non_wiki_content
-            
-            # Add to sources
-            for result in non_wiki_sources:
-                if 'url' in result:
-                    web_sources.append({
-                        'type': 'web',
-                        'title': result.get('title', 'Web Source'),
-                        'url': result['url']
-                    })
+        # Check if wiki content is sufficient before doing any web searches
+        if wiki_content:
+            is_wiki_sufficient = await is_wiki_only_query(user_query, wiki_content)
+            if is_wiki_sufficient:
+                print("Wiki content deemed sufficient, skipping web search")
+                return wiki_content, updated_page_names, wiki_sources, []
         
-        # If we have no content at all, perform a full web search
-        if not wiki_content:
-            print("No wiki pages identified, performing full web search...")
+        # If we need web content, do the web search
+        if status_message:
+            await status_message.edit(content="Performing web search...")
             
-            # Reuse search results if we already have them
-            if search_results is None:
-                if status_message:
-                    await status_message.edit(content="Performing web search...")
-                search_results = await get_web_search_context(user_query)
-            
-            # Format the results for use as context
-            wiki_content = format_search_results(search_results)
-            print("Using web search results as context")
-            
-            # Add to sources
-            for result in search_results:
-                if 'url' in result:
-                    web_sources.append({
-                        'type': 'web',
-                        'title': result.get('title', 'Web Source'),
-                        'url': result['url']
-                    })
+        search_results = await get_web_search_context(user_query)
         
+        # Process search results
+        for result in search_results:
+            url = result.get('url', '')
+            
+            # Check for additional wiki pages we didn't find initially
+            if "oldschool.runescape.wiki/w/" in url:
+                page_name = url.split("/w/")[-1].replace(' ', '_')
+                if not any(existing.lower() == page_name.lower() for existing in updated_page_names):
+                    # Fetch this additional wiki page
+                    print(f"Found additional wiki page: {page_name}")
+                    additional_content, add_redirects, add_rejected = await fetch_osrs_wiki_pages([page_name])
+                    
+                    if additional_content and page_name not in add_rejected:
+                        wiki_content += "\n" + additional_content
+                        redirected_page = add_redirects.get(page_name, page_name)
+                        final_page_name = redirected_page.replace(' ', '_')
+                        updated_page_names.append(final_page_name)
+                        wiki_sources.append({
+                            'type': 'wiki',
+                            'name': final_page_name,
+                            'url': f"https://oldschool.runescape.wiki/w/{final_page_name}"
+                        })
+            else:
+                # Add non-wiki sources
+                web_sources.append({
+                    'type': 'web',
+                    'title': result.get('title', 'Web Source'),
+                    'url': url
+                })
+        
+        # Add formatted web content if we have any
+        if web_sources:
+            web_content = format_search_results(search_results)
+            if wiki_content:
+                wiki_content += "\n\n" + web_content
+            else:
+                wiki_content = web_content
+            
         return wiki_content, updated_page_names, wiki_sources, web_sources
+        
     except Exception as e:
         print(f"Error identifying and fetching wiki pages: {e}")
         return "", [], [], []
@@ -646,64 +619,55 @@ async def identify_and_fetch_metrics(user_query: str):
     except Exception as e:
         print(f"Error identifying and fetching metrics: {e}")
         return {}
+
+async def is_wiki_only_query(user_query: str, wiki_content: str) -> bool:
+    """
+    Determine if the provided wiki content contains sufficient information to answer the query
+    without needing additional web searches.
     
+    Args:
+        user_query: The user's query text
+        wiki_content: The full wiki page content
+        
+    Returns:
+        Boolean indicating if the query can be answered with the provided wiki content alone
+    """
+    if not wiki_content:
+        return False
+        
     try:
         model = genai.GenerativeModel(config.gemini_model)
-        
-        # Format the metrics lists for the prompt
-        skills_str = ", ".join(SKILL_METRICS)
-        activities_str = ", ".join(ACTIVITY_METRICS)
-        bosses_str = ", ".join(BOSS_METRICS)
-        
+            
         prompt = f"""
-        You are an assistant that identifies Old School RuneScape (OSRS) metrics mentioned in user queries.
+        Analyze if the provided OSRS wiki content has enough information to fully answer this query without needing additional web searches.
         
-        Available metrics:
+        Query: "{user_query}"
         
-        Skills: {skills_str}
+        Wiki content: "{wiki_content}"
         
-        Activities: {activities_str}
+        Your task is to determine if this wiki content alone contains sufficient information to provide a complete and accurate answer to the query.
         
-        Bosses: {bosses_str}
+        For queries about item stats, equipment stats, combat bonuses, or weapon attributes, check carefully if the content includes:
+        - Combat stats sections with attack/defense bonuses
+        - Equipment stats and requirements
+        - Special attack details (if applicable)
+        - Item attributes like speed, accuracy, or damage
+        - Price information
         
-        Analyze the following user query and identify any metrics (skills, bosses, activities) that are explicitly mentioned or clearly implied.
-        
-        User query: "{user_query}"
-        
-        Rules:
-        1. Only include metrics that are explicitly mentioned or clearly implied in the query
-        2. Return metrics in their exact format from the lists above (lowercase with underscores)
-        3. If multiple metrics are mentioned, list them all
-        4. If no metrics are mentioned, respond with "none"
-        5. Common abbreviations should be mapped to their full metric name:
-           - "cox" = "chambers_of_xeric"
-           - "tob" = "theatre_of_blood"
-           - "toa" = "tombs_of_amascut"
-           - "cm" or "cox cm" = "chambers_of_xeric_challenge_mode"
-           - "hm tob" or "hard tob" = "theatre_of_blood_hard_mode"
-           - "expert toa" = "tombs_of_amascut_expert"
-        
-        Respond ONLY with a comma-separated list of identified metrics, or "none" if no metrics are mentioned.
+        Even if only basic item stats are present but they directly answer what the user is asking about, consider this sufficient.
+        Respond with ONLY "YES" if the wiki content has enough information, or "NO" if additional web searching would be needed to properly answer the query.
         """
         
-        generation = await asyncio.to_thread(
-            lambda: model.generate_content(prompt)
+        # Use a shorter timeout for this decision
+        response = await asyncio.to_thread(
+            lambda: model.generate_content(prompt).text.strip()
         )
-        response_text = generation.text.strip().lower()
         
-        if response_text == "none":
-            print("No metrics identified in query")
-            return []
-            
-        # Parse the comma-separated list of metrics
-        mentioned_metrics = [metric.strip() for metric in response_text.split(',') if metric.strip()]
-        
-        # Filter to only include metrics that match our predefined list
-        valid_metrics = [metric for metric in mentioned_metrics if metric in ALL_METRICS]
-        
-        print(f"Identified metrics: {valid_metrics}")
-        return valid_metrics
+        is_wiki_sufficient = response.upper() == "YES"
+        print(f"Wiki content sufficiency analysis: {response} (is_wiki_sufficient={is_wiki_sufficient})")
+        return is_wiki_sufficient
         
     except Exception as e:
-        print(f"Error identifying mentioned metrics: {e}")
-        return []
+        print(f"Error analyzing wiki content sufficiency: {e}")
+        # If there's an error, default to False (safer to get more information)
+        return False

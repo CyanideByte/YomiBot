@@ -3,7 +3,14 @@ import time
 import re
 import google.generativeai as genai
 from config.config import config
-from osrs.llm.identification import identify_and_fetch_players, identify_and_fetch_wiki_pages, identify_and_fetch_metrics, is_player_only_query, is_prohibited_query
+from osrs.llm.identification import (
+    identify_and_fetch_players,
+    identify_and_fetch_wiki_pages,
+    identify_and_fetch_metrics,
+    is_player_only_query,
+    is_prohibited_query,
+    is_wiki_only_query
+)
 from osrs.llm.source_management import ensure_all_sources_included, clean_url_patterns
 from osrs.wiseoldman import format_player_data, format_metrics
 
@@ -226,17 +233,17 @@ async def process_unified_query(
         # Determine if this is a player-only query
         is_player_only = False
         if player_data_list:
-            if status_message:
-                await status_message.edit(content="Analyzing query...")
+            is_player_only = True # If any players were identified, always skip wiki/web search
+            # if status_message:
+            #     await status_message.edit(content="Analyzing query...")
                 
-            is_player_only = await is_player_only_query(user_query, player_data_list)
-            print(f"Query determined to be player-only: {is_player_only}")
+            # is_player_only = await is_player_only_query(user_query, player_data_list)
+            # print(f"Query determined to be player-only: {is_player_only}")
         
         # Only fetch wiki/web content if this is not a player-only query
         if not is_player_only:
             if status_message:
                 await status_message.edit(content="Searching wiki and web...")
-            
             wiki_task = identify_and_fetch_wiki_pages(user_query, image_urls)
             wiki_content, updated_page_names, wiki_sources, web_sources = await wiki_task
         else:

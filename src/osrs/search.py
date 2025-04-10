@@ -10,6 +10,25 @@ import time
 import hashlib
 from config.config import config, PROJECT_ROOT, SEARCH_CACHE, PAGES_CACHE
 
+# URLs to exclude from search results
+EXCLUDED_TERMS = [
+    "fandom.com", "reddit.com", "quora.com", "youtube.com", "twitch.tv",
+    "github.com", "x.com", "twitter.com", "runehq.com",
+    "playerauctions.com", "rpgstash.com", "eldorado.gg", "probemas.com",
+    "chicksgold.com", "g2g.com", "food4rs.com", "partypeteshop.com",
+    "rsorder.com", "ezrsgold.com", "rsgoldfast.com", "virtgold.com",
+    "luckycharmsgold.com", "osbuddy.com", "osbot.org", "runemate.com",
+    "osrsbots.com", "oldschoolscripts.com", "dreambot.org", "epicbot.com",
+    "tribot.org", "robotzindisguise.com", "topg.org", "runelocus.com",
+    "rsps-list.com", "scythe.org", "top100arena.com", "moparscape.org"
+]
+
+# Allowed RuneScape wiki domains
+ALLOWED_WIKI_DOMAINS = [
+    "oldschool.runescape.wiki",
+    "prices.runescape.wiki"
+]
+
 
 # Sanitize filename to avoid filesystem issues
 def safe_filename(name):
@@ -170,6 +189,7 @@ async def extract_text_from_url(session, page_url):
     except Exception as e:
         print(f"Failed to fetch {page_url}: {e}")
         return None
+
 async def search_web(search_term):
     """Search the web using Brave Search API and return formatted results"""
     if not config.brave_api_key:
@@ -178,7 +198,18 @@ async def search_web(search_term):
     # Try to load from search cache first
     cached_results = load_cached_search(search_term)
     if cached_results:
-        return cached_results
+        # Filter cached results
+        filtered_results = [
+            result for result in cached_results
+            if result.get('url') and not any(term in result['url'].lower() for term in EXCLUDED_TERMS) and (
+                not "runescape.wiki" in result['url'] or any(domain in result['url'] for domain in ALLOWED_WIKI_DOMAINS)
+            )
+        ]
+        
+        if filtered_results:
+            print(f"Using filtered cached results ({len(filtered_results)} of {len(cached_results)} results kept)")
+            return filtered_results
+        print("All cached results were filtered out, performing new search")
     
     # Brave Search query and parameters
     params = {
@@ -212,13 +243,8 @@ async def search_web(search_term):
                     title = result.get("title", "Untitled")
                     link = result.get("url")
                     # Skip unwanted URLs
-                    excluded_terms = ["runescape.fandom.com", "reddit.com", "quora.com", "youtube.com", "twitch.tv", "github.com", "x.com", "twitter.com",
-                                      "playerauctions.com", "rpgstash.com", "eldorado.gg", "probemas.com", "chicksgold.com", "g2g.com", "food4rs.com", "partypeteshop.com", "rsorder.com", "ezrsgold.com", "rsgoldfast.com", "virtgold.com", "luckycharmsgold.com",
-                                      "osbuddy.com", "osbot.org", "runemate.com", "osrsbots.com", "oldschoolscripts.com", "dreambot.org", "epicbot.com", "tribot.org", "robotzindisguise.com",
-                                      "topg.org", "runelocus.com", "rsps-list.com", "scythe.org", "top100arena.com"]
-                    
-                    if not link or any(term in link.lower() for term in excluded_terms) or (
-                        "runescape.wiki" in link and "oldschool.runescape.wiki" not in link
+                    if not link or any(term in link.lower() for term in EXCLUDED_TERMS) or (
+                        "runescape.wiki" in link and not any(domain in link for domain in ALLOWED_WIKI_DOMAINS)
                     ):
                         if link: print(f"Skipping excluded URL: {link}")
                         continue
