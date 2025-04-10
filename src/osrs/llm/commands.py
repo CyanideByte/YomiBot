@@ -70,8 +70,11 @@ def register_commands(bot):
             else:
                 # Use identify_mentioned_players to find the player
                 guild_members = get_guild_member_names()
-                identified_players = await identify_mentioned_players(user_query, guild_members, ctx.author.display_name)
-                if not identified_players:
+                identified_players, is_all_members = await identify_mentioned_players(user_query, guild_members, ctx.author.display_name)
+                if is_all_members:
+                    await processing_msg.edit(content="I can't roast everyone at once! Pick someone specific to roast.")
+                    return
+                elif not identified_players:
                     # If no players found in guild, try the user query directly
                     target_player = user_query
                 else:

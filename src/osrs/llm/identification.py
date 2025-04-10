@@ -76,11 +76,16 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         print(f"Error identifying wiki pages: {e}")
         return []
 
-async def identify_mentioned_players(user_query: str, guild_members: list, requester_name: str = None):
-    """Use Gemini to identify mentioned players in the query"""
+async def identify_mentioned_players(user_query: str, guild_members: list, requester_name: str = None) -> tuple[list, bool]:
+    """
+    Use Gemini to identify mentioned players in the query
+    
+    Returns:
+        tuple: (list of mentioned players, bool indicating if query refers to all members)
+    """
     if not config.gemini_api_key:
         print("Gemini API key not set")
-        return []
+        return [], False
     
     try:
         model = genai.GenerativeModel(config.gemini_model)
@@ -92,7 +97,29 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
         Clan member list:
         {members_list}
 
-        Based on the above member list, respond with a comma separated list of clan members that you think the user is referring to in the following query or [NO_MEMBERS] if none are mentioned. If the user refers to themself (ex: I/me etc, but not 'yourself' as that refers to the bot) then add the Requester name to the list as well. Do not respond with anything else.
+        Based on the above member list, analyze the user query and respond with ONE of these options:
+        1. [ALL_MEMBERS] - if the query refers to all clan members or doesn't specify particular members
+        2. [NO_MEMBERS] - if no clan members are mentioned or referenced
+        3. A comma-separated list of UP TO 10 specific clan members mentioned or referenced
+
+        Examples that should return [ALL_MEMBERS]:
+        - "Who has the most Mole kills?"
+        - "Who has the highest KBD KC?"
+        - "Which clan member has the highest Firemaking level?"
+        - "What's the highest total level in the clan?"
+        - "Show me everyone's Zulrah KC"
+        - "Compare all members' Slayer levels"
+        - "Who is the best PvMer in the clan?"
+        
+        Examples that should return specific members:
+        - "Compare Bob and Alice's stats"
+        - "What's higher, John's or Mike's total level?"
+        - "How many Vorkath kills does DragonSlayer have?"
+        - "Show me my KC compared to Steve" (includes requester name)
+        - "List tob KCs for me, Soup, Tovo, and Phug"
+
+        If the user refers to themself (ex: I/me etc, but not 'yourself' as that refers to the bot) then include the Requester name in the list.
+        For multiple specific members, prioritize the most relevant ones to stay within the 10 member limit.
 
         Requester name: {requester_name or 'Unknown'}
         User query: {user_query}
@@ -103,19 +130,22 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
         )
         response_text = generation.text.strip()
         
-        # Check if the response indicates no members were found
+        # Check special responses
         if response_text == "[NO_MEMBERS]":
             print("No members identified in query")
-            return []
+            return [], False
+        elif response_text == "[ALL_MEMBERS]":
+            print("Query refers to all clan members")
+            return [], True
             
-        # Parse the comma-separated list of members
-        mentioned_members = [name.strip() for name in response_text.split(',') if name.strip()]
-        print(f"Identified mentioned members: {mentioned_members}")
-        return mentioned_members
+        # Parse the comma-separated list of specific members
+        mentioned_members = [name.strip() for name in response_text.split(',') if name.strip()][:10]
+        print(f"Identified specific members (limited to 10): {mentioned_members}")
+        return mentioned_members, False
         
     except Exception as e:
         print(f"Error identifying mentioned members: {e}")
-        return []
+        return [], False
 
 async def generate_search_term(query):
     """Use Gemini to generate a search term based on the user query or determine if no search is needed"""
@@ -232,7 +262,11 @@ async def identify_and_fetch_players(user_query: str, requester_name=None):
         guild_members = get_guild_members()
         # Extract names from guild members
         guild_member_names = [member['player']['displayName'] for member in guild_members]
-        identified_players = await identify_mentioned_players(user_query, guild_member_names, requester_name)
+        identified_players, is_all_members = await identify_mentioned_players(user_query, guild_member_names, requester_name)
+
+        if is_all_members:
+            print("TODO: extract comparison metric list from https://api.wiseoldman.net/v2/groups/3773/hiscores?metric=giant_mole&limit=50")
+            return [], []
 
         if identified_players:
             # Create a single session for all requests
