@@ -64,9 +64,6 @@ async def process_unified_query(
         start_time = time.time()
         
         # First, check if query is about prohibited topics
-        if status_message:
-            await status_message.edit(content="Checking query...")
-
         is_prohibited = await is_prohibited_query(user_query)
         if is_prohibited:
             # Generate security explanation using Gemini
@@ -243,8 +240,8 @@ async def process_unified_query(
         # Only fetch wiki/web content if this is not a player-only query
         if not is_player_only:
             if status_message:
-                await status_message.edit(content="Searching wiki and web...")
-            wiki_task = identify_and_fetch_wiki_pages(user_query, image_urls)
+                await status_message.edit(content="Searching wiki...")
+            wiki_task = identify_and_fetch_wiki_pages(user_query, image_urls, status_message)
             wiki_content, updated_page_names, wiki_sources, web_sources = await wiki_task
         else:
             print("Skipping wiki and web searches for player-only query")

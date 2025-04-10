@@ -454,7 +454,7 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
         
         # If we need web content, do the web search
         if status_message:
-            await status_message.edit(content="Performing web search...")
+            await status_message.edit(content="Searching the web...")
             
         search_results = await get_web_search_context(user_query)
         
