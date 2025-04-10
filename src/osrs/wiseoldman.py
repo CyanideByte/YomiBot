@@ -281,6 +281,16 @@ def get_guild_members():
                 print(f"Error reading expired cache: {e}")
         return []
 
+def get_guild_members_data():
+    """
+    Returns the guild's membership data from the WiseOldMan API.
+    This is a wrapper around get_guild_members() for clarity of purpose.
+    
+    Returns:
+        list: A list of membership objects containing player data
+    """
+    return get_guild_members()
+
 def get_guild_member_names():
     """
     Returns a list of guild member display names.
@@ -289,7 +299,7 @@ def get_guild_member_names():
     Returns:
         list: A list of member display names
     """
-    memberships = get_guild_members()
+    memberships = get_guild_members_data()
     return [member['player']['displayName'] for member in memberships]
 
 def get_player_cache_path(username):
@@ -318,28 +328,49 @@ async def fetch_player_details(player, session=None):
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
                 cache_data = json.load(f)
-            
-            cached_data = cache_data.get('player_data', {})
-            current_updated = player.get('updatedAt')
-            current_changed = player.get('lastChangedAt')
-            
-            if current_updated and current_changed:
-                cached_updated = cached_data.get('updatedAt', '1970-01-01T00:00:00.000Z')
-                cached_changed = cached_data.get('lastChangedAt', '1970-01-01T00:00:00.000Z')
-                
-                try:
-                    # Parse dates into datetime objects for comparison
-                    cached_updated_dt = datetime.strptime(cached_updated, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
-                    cached_changed_dt = datetime.strptime(cached_changed, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
-                    current_updated_dt = datetime.strptime(current_updated, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
-                    current_changed_dt = datetime.strptime(current_changed, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+            # Check if essential cache keys exist
+            if 'lastFileCachedTime' not in cache_data:
+                 print(f"Cache file for {username} is missing 'lastFileCachedTime', fetching fresh data.")
+            elif 'player_data' not in cache_data:
+                print(f"Cache file for {username} is missing 'player_data', fetching fresh data.")
+            else:
+                cached_data = cache_data['player_data']
+                current_updated = player.get('updatedAt')
+                current_changed = player.get('lastChangedAt')
+
+                # Check if we have current dates from input AND cached dates exist
+                if current_updated and current_changed and \
+                   'updatedAt' in cached_data and 'lastChangedAt' in cached_data:
                     
-                    if current_updated_dt <= cached_updated_dt and current_changed_dt <= cached_changed_dt:
-                        print(f"Using cached data for player {username} (no updates available)")
-                        return cached_data
-                except ValueError:
-                    # If there's any issue parsing dates, fetch fresh data to be safe
-                    pass
+                    cached_updated = cached_data['updatedAt']
+                    cached_changed = cached_data['lastChangedAt']
+                    
+                    try:
+                        # Parse dates into datetime objects for comparison
+                        # Use fromisoformat for robustness
+                        cached_updated_dt = datetime.fromisoformat(cached_updated) # Use standard fromisoformat
+                        cached_changed_dt = datetime.fromisoformat(cached_changed) # Use standard fromisoformat
+                        current_updated_dt = datetime.fromisoformat(current_updated) # Use standard fromisoformat
+                        current_changed_dt = datetime.fromisoformat(current_changed) # Use standard fromisoformat
+
+                        # Compare dates
+                        if current_updated_dt <= cached_updated_dt and current_changed_dt <= cached_changed_dt:
+                            print(f"Using cached data for player {username} (no updates available based on timestamps)")
+                            return cached_data
+                        else:
+                            print(f"Cached data for {username} is outdated based on timestamps.")
+                            
+                    except (ValueError, TypeError) as date_err:
+                        # If there's any issue parsing dates, fetch fresh data to be safe
+                        print(f"Error parsing cache dates for {username}: {date_err}. Fetching fresh data.")
+                else:
+                    # Missing necessary date info either from input or cache
+                    if not (current_updated and current_changed):
+                         print(f"Missing current update/change times for {username} in input, cannot validate cache by date.")
+                    else:
+                         print(f"Cache file for {username} is missing 'updatedAt' or 'lastChangedAt', fetching fresh data.")
+            
+            # If we reach here, cache was invalid or missing keys
             
             print(f"Updates available for player {username}, fetching fresh data")
         except Exception as e:
@@ -355,32 +386,191 @@ async def fetch_player_details(player, session=None):
     if config.wise_old_man_api_key:
         headers["x-api-key"] = config.wise_old_man_api_key
     
+    should_close_session = False
+    if session is None:
+        session = aiohttp.ClientSession()
+        should_close_session = True
+        
     try:
-        should_close_session = False
-        if session is None:
-            session = aiohttp.ClientSession()
-            should_close_session = True
+        async with session.get(url, headers=headers) as response:
+            response.raise_for_status()  # Raise an exception for non-200 status codes
+            player_data = await response.json()
             
-        try:
-            async with session.get(url, headers=headers) as response:
-                response.raise_for_status()  # Raise an exception for non-200 status codes
-                player_data = await response.json()
-                
-                # Save to cache
-                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-                with open(cache_path, 'w', encoding='utf-8') as f:
-                    json.dump({
-                        'player_data': player_data
-                    }, f, ensure_ascii=False)
-                
-                return player_data
-        finally:
-            if should_close_session:
-                await session.close()
-                
+            # Save to cache
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'player_data': player_data,
+                    'lastFileCachedTime': datetime.now(timezone.utc).isoformat() # Use standard isoformat
+                }, f, ensure_ascii=False)
+            
+            return player_data
+    except aiohttp.ClientResponseError as e:
+        # Catch specific response errors
+        print(f"HTTP Error fetching player details for {username}: {e.status} {e.message}")
+        # Fall through to stale cache handling
     except Exception as e:
         print(f"Error fetching player details for {username}: {e}")
-        return None
+        # Fall through to stale cache handling
+    finally:
+        if should_close_session:
+            await session.close()
+            
+    # Try to return stale cache data if available for any error
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            print(f"Returning stale cache for {username} due to API error.")
+            return cache_data.get('player_data')
+        except Exception as cache_err:
+            print(f"Error reading stale cache for {username}: {cache_err}")
+    return None
+
+
+async def fetch_player_details_by_username(username: str, guild_member_list=None, session=None):
+    """
+    Fetch player details from the WiseOldMan API using only the username.
+    Uses timestamp-based caching for guild members and time-based caching for non-members.
+
+    Args:
+        username (str): The player's username.
+        guild_member_list (list, optional): List of guild member data to check if player is a member.
+        session (aiohttp.ClientSession, optional): If not provided, a new one will be created.
+
+    Returns:
+        dict or None: Player data dictionary if found, otherwise None.
+    """
+    # Check if player is in guild_member_list
+    current_player_obj = None
+    if guild_member_list:
+        for member in guild_member_list:
+            if member['player']['displayName'].lower() == username.lower():
+                current_player_obj = member['player']
+                break
+    # Replace spaces with underscores for API request and cache path
+    api_username = username.replace(' ', '_')
+    cache_path = get_player_cache_path(username)
+    cache_duration = timedelta(hours=1) # Cache duration of 1 hour
+
+    # Check for cached data
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+
+            # Check for essential cache keys
+            if 'lastFileCachedTime' not in cache_data:
+                print(f"Cache file for {username} is missing 'lastFileCachedTime', fetching fresh data.")
+                return None
+            
+            if 'player_data' not in cache_data:
+                print(f"Cache file for {username} is missing 'player_data', fetching fresh data.")
+                return None
+            
+            cached_data = cache_data['player_data']
+
+            # If player is a guild member, try timestamp-based caching first
+            if current_player_obj and \
+               'updatedAt' in cached_data and 'lastChangedAt' in cached_data and \
+               'updatedAt' in current_player_obj and 'lastChangedAt' in current_player_obj:
+
+                try:
+                    # Parse dates and compare
+                    cached_updated = datetime.fromisoformat(cached_data['updatedAt'])
+                    cached_changed = datetime.fromisoformat(cached_data['lastChangedAt'])
+                    current_updated = datetime.fromisoformat(current_player_obj['updatedAt'])
+                    current_changed = datetime.fromisoformat(current_player_obj['lastChangedAt'])
+
+                    if current_updated <= cached_updated and current_changed <= cached_changed:
+                        print(f"Using cached data for guild member {username} (no updates available)")
+                        return cached_data
+
+                    print(f"Updates available for guild member {username}, fetching fresh data")
+                    return None
+
+                except (ValueError, TypeError) as e:
+                    print(f"Error comparing timestamps for {username}: {e}, falling back to time-based cache")
+                    # Fall through to time-based cache check
+            
+            # For non-guild members or if timestamp comparison failed, use time-based caching
+            try:
+                last_cached_dt = datetime.fromisoformat(cache_data['lastFileCachedTime'])
+                current_dt = datetime.now(timezone.utc)
+
+                if current_dt - last_cached_dt < cache_duration:
+                    print(f"Using cached data for {username} (less than {cache_duration} old)")
+                    return cached_data
+
+                print(f"Cache for {username} is older than {cache_duration}, fetching fresh data")
+                return None
+
+            except ValueError as e:
+                print(f"Error parsing cache timestamp for {username}: {e}, fetching fresh data")
+                return None
+
+        except Exception as e:
+            print(f"Error reading cache for {username}: {e}. Fetching fresh data.")
+            return None
+
+    # 2. If no valid cache exists, fetch from API
+    url = f"https://api.wiseoldman.net/v2/players/{api_username}"
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": config.wise_old_man_user_agent or config.user_agent
+    }
+
+    if config.wise_old_man_api_key:
+        headers["x-api-key"] = config.wise_old_man_api_key
+
+    should_close_session = False
+    if session is None:
+        session = aiohttp.ClientSession()
+        should_close_session = True
+
+    try:
+        print(f"Fetching fresh data for player {username} from API.")
+        async with session.get(url, headers=headers) as response:
+            if response.status == 404:
+                print(f"Player {username} not found on WiseOldMan (404).")
+                return None # Player not found is not an error, just return None
+
+            response.raise_for_status()  # Raise an exception for other non-200 status codes
+            player_data = await response.json()
+
+            # 3. Save to cache
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            cache_content = {
+                'player_data': player_data,
+                'lastFileCachedTime': datetime.now(timezone.utc).isoformat() # Use standard isoformat
+            }
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(cache_content, f, ensure_ascii=False)
+            print(f"Saved fresh data for player {username} to cache.")
+
+            return player_data
+
+    except aiohttp.ClientResponseError as e:
+        # Catch specific response errors after checking 404
+        print(f"HTTP Error fetching player details for {username}: {e.status} {e.message}")
+        # Fall through to stale cache handling
+    except Exception as e:
+        print(f"Generic Error fetching player details for {username}: {e}")
+        # Fall through to stale cache handling
+    finally:
+        if should_close_session:
+            await session.close()
+        
+    # Try to return stale cache data if available for any error
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            print(f"Returning stale cache for {username} due to API error.")
+            return cache_data.get('player_data')
+        except Exception as cache_err:
+            print(f"Error reading stale cache for {username}: {cache_err}")
+    return None
 
 
 def format_player_data(player_data):

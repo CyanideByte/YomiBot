@@ -1,7 +1,11 @@
 # Discord command registration
 import aiohttp
+import os
 from osrs.llm.query_processing import process_unified_query, roast_player
-from osrs.wiseoldman import fetch_player_details, get_guild_member_names
+from osrs.wiseoldman import (
+    fetch_player_details, fetch_player_details_by_username,
+    get_guild_members_data, get_player_cache_path
+)
 from osrs.llm.identification import identify_mentioned_players
 
 def register_commands(bot):
@@ -64,28 +68,40 @@ def register_commands(bot):
         )
 
         try:
+            # Get guild members data first since we'll need it either way
+            guild_members_data = get_guild_members_data()
+            guild_member_names = [member['player']['displayName'] for member in guild_members_data]
+
             # Handle the case where the user wants to roast themselves
             if user_query.lower() == "me":
                 target_player = ctx.author.display_name
             else:
-                # Use identify_mentioned_players to find the player
-                guild_members = get_guild_member_names()
-                identified_players, is_all_members = await identify_mentioned_players(user_query, guild_members, ctx.author.display_name)
-                if is_all_members:
-                    await processing_msg.edit(content="I can't roast everyone at once! Pick someone specific to roast.")
-                    return
-                elif not identified_players:
-                    # If no players found in guild, try the user query directly
-                    target_player = user_query
+                # Check if the query matches a guild member
+                exact_match = next((member for member in guild_members_data
+                                  if member['player']['displayName'].lower() == user_query.lower()), None)
+                
+                if exact_match:
+                    # Use the exact match
+                    target_player = exact_match['player']['displayName']
+                    print("Exact match found, skipping identification:", target_player)
                 else:
-                    # Use the first identified player
-                    target_player = identified_players[0]
+                    # Try to identify players from the query
+                    identified_players, is_all_members = await identify_mentioned_players(user_query, guild_member_names, ctx.author.display_name)
+                    if is_all_members:
+                        await processing_msg.edit(content="I can't roast everyone at once! Pick someone specific to roast.")
+                        return
+                    elif not identified_players:
+                        # If no players found in guild, try the user query directly
+                        target_player = user_query
+                    else:
+                        # Use the first identified player
+                        target_player = identified_players[0]
 
             await processing_msg.edit(content=f"Preparing a savage roast for {target_player}...")
             
-            # Fetch player details
+            # Fetch player details, passing guild members data for efficient caching
             async with aiohttp.ClientSession() as session:
-                player_data = await fetch_player_details(target_player, session)
+                player_data = await fetch_player_details_by_username(target_player, guild_members_data, session)
             
             if not player_data:
                 await processing_msg.edit(content=f"Couldn't find any stats for '{target_player}'. They're so irrelevant they don't even show up on WiseOldMan.")
