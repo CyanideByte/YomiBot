@@ -203,7 +203,7 @@ async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
         
     try:
         # If we have player data, use Gemini to determine if it's a player-only query
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel(config.gemini_model)
         
         # Create a simplified version of the player data for analysis
         simplified_data = []
@@ -251,6 +251,67 @@ async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
         print(f"Error determining if player-only query: {e}")
         # If there's an error, default to False (safer to get more information)
         return False
+
+async def is_prohibited_query(user_query: str) -> bool:
+    """
+    Determine if a query is about prohibited topics that should not be answered.
+    
+    Args:
+        user_query: The user's query text
+        
+    Returns:
+        Boolean indicating if the query is about prohibited topics
+        
+    """
+    if not config.gemini_api_key:
+        print("Gemini API key not set")
+        return False
+        
+    try:
+        model = genai.GenerativeModel(config.gemini_model)
+        
+        prompt = f"""
+        Analyze this query about OSRS and determine if it's about prohibited topics that should not be answered.
+
+        Prohibited topics include:
+        - Real world trading (buying/selling gold, accounts, or services)
+        - Botting and bot clients
+        - Unofficial 3rd party clients (like OSBuddy)
+        - Private servers (RSPS)
+
+        Query: "{user_query}"
+
+        Examples of prohibited queries:
+        - "Where can I buy OSRS gold?"
+        - "What's the best botting client?"
+        - "How do I set up OSBuddy?"
+        - "Which gold selling sites are trustworthy?"
+        - "What's the safest bot to use?"
+        - "How much does power leveling service cost?"
+        - "Can someone sell me an account?"
+        - "What RSPS has the most players?"
+        - "Which private server has the best PvP?"
+        - "How do I join SpawnPK RSPS?"
+        - "What's the IP for RoatPkz?"
+        - "Best private server for ironman mode?"
+        
+        Respond with ONLY "YES" if the query is about prohibited topics, or "NO" if it's allowed.
+        """
+        
+        # Use a shorter timeout for this decision
+        response = await asyncio.to_thread(
+            lambda: model.generate_content(prompt).text.strip()
+        )
+        
+        is_prohibited = response.upper() == "YES"
+        print(f"Query prohibition check result: {response} (is_prohibited={is_prohibited})")
+        return is_prohibited
+        
+    except Exception as e:
+        print(f"Error determining if prohibited query: {e}")
+        # If there's an error, default to False (safer to allow query through)
+        return False
+
 
 async def identify_and_fetch_players(user_query: str, requester_name=None):
     """Identify mentioned players in the query and fetch their data"""

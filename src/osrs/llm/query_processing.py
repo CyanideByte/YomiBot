@@ -3,7 +3,7 @@ import time
 import re
 import google.generativeai as genai
 from config.config import config
-from osrs.llm.identification import identify_and_fetch_players, identify_and_fetch_wiki_pages, is_player_only_query
+from osrs.llm.identification import identify_and_fetch_players, identify_and_fetch_wiki_pages, is_player_only_query, is_prohibited_query
 from osrs.llm.source_management import ensure_all_sources_included, clean_url_patterns
 from osrs.wiseoldman import format_player_data
 
@@ -56,7 +56,60 @@ async def process_unified_query(
         # Start performance tracking
         start_time = time.time()
         
-        # First, identify and fetch player data
+        # First, check if query is about prohibited topics
+        if status_message:
+            await status_message.edit(content="Checking query...")
+
+        is_prohibited = await is_prohibited_query(user_query)
+        if is_prohibited:
+            # Generate security explanation using Gemini
+            model = genai.GenerativeModel(config.gemini_model)
+            prompt = f"""
+            The user asked: "{user_query}"
+            
+            You must write a response that explains the SPECIFIC security risks of their query. DO NOT give a generic response about all prohibited topics.
+
+            For RWT (gold/account/services):
+            - Focus on account theft/recovery scams
+            - Permanent bans from Jagex
+            - Credit card fraud risks
+            
+            For botting clients:
+            - Focus on malware/keyloggers
+            - Account hijacking
+            - Resource theft
+            
+            For unofficial clients:
+            - Focus on password stealing
+            - Bank PIN capture
+            - Authentication bypass risks
+            
+            For private servers:
+            - Focus on malware from downloads
+            - Account database theft
+            - Reused password risks
+
+            Write a focused response ONLY about the specific topic they asked about. Keep it under 500 characters.
+            """
+            
+            generation = await asyncio.to_thread(
+                lambda: model.generate_content(prompt)
+            )
+            explanation = None
+            if generation and generation.text:
+                explanation = generation.text.strip()
+            
+            # Fallback if generation fails
+            if not explanation:
+                explanation = "This topic poses serious security risks to your RuneScape account and computer. For your safety, please only use the official RuneScape client and avoid prohibited activities like RWT, botting, and private servers."
+            if generation and generation.text:
+                explanation = generation.text.strip()
+            
+            if status_message:
+                await status_message.edit(content=explanation)
+            return explanation
+
+        # If not prohibited, proceed with player data
         if status_message:
             await status_message.edit(content="Finding players...")
             
