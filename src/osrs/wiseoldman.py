@@ -435,7 +435,7 @@ def format_metrics(metrics_data):
     output = []
     
     # Add header
-    output.append("CLAN METRICS")
+    output.append("CLAN METRICS FOR ", len(metrics_data), " MEMBERS")
     
     # Process each metric
     for metric_name, scoreboard in metrics_data.items():
