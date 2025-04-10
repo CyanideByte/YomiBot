@@ -37,10 +37,8 @@ BOSS_METRICS = [
     'vorkath', 'wintertodt', 'zalcano', 'zulrah'
 ]
 
-COMPUTED_METRICS = ['ehp', 'ehb']
-
 # Combine all metrics for validation
-ALL_METRICS = SKILL_METRICS + ACTIVITY_METRICS + BOSS_METRICS + COMPUTED_METRICS
+ALL_METRICS = SKILL_METRICS + ACTIVITY_METRICS + BOSS_METRICS
 
 async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
     """Use Gemini to identify relevant wiki pages for the query"""
@@ -552,7 +550,6 @@ async def identify_mentioned_metrics(user_query: str) -> list:
         skills_str = ", ".join(SKILL_METRICS)
         activities_str = ", ".join(ACTIVITY_METRICS)
         bosses_str = ", ".join(BOSS_METRICS)
-        computed_str = ", ".join(COMPUTED_METRICS)
         
         prompt = f"""
         You are an assistant that identifies Old School RuneScape (OSRS) metrics mentioned in user queries.
@@ -564,8 +561,6 @@ async def identify_mentioned_metrics(user_query: str) -> list:
         Activities: {activities_str}
         
         Bosses: {bosses_str}
-        
-        Computed: {computed_str}
         
         Analyze the following user query and identify any metrics (skills, bosses, activities) that are explicitly mentioned or clearly implied.
         
@@ -659,7 +654,6 @@ async def identify_and_fetch_metrics(user_query: str):
         skills_str = ", ".join(SKILL_METRICS)
         activities_str = ", ".join(ACTIVITY_METRICS)
         bosses_str = ", ".join(BOSS_METRICS)
-        computed_str = ", ".join(COMPUTED_METRICS)
         
         prompt = f"""
         You are an assistant that identifies Old School RuneScape (OSRS) metrics mentioned in user queries.
@@ -671,8 +665,6 @@ async def identify_and_fetch_metrics(user_query: str):
         Activities: {activities_str}
         
         Bosses: {bosses_str}
-        
-        Computed: {computed_str}
         
         Analyze the following user query and identify any metrics (skills, bosses, activities) that are explicitly mentioned or clearly implied.
         

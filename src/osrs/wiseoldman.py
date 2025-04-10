@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 import asyncio
 import aiohttp
 import requests
-from config.config import PROJECT_ROOT, config, PLAYERS_CACHE, WOM_CACHE
+from config.config import PROJECT_ROOT, config, PLAYERS_CACHE, WOM_CACHE, METRICS_CACHE
 
 # Replace with your clan's group ID
 GROUP_ID = "3773"
@@ -52,10 +52,8 @@ BOSS_METRICS = [
     'vorkath', 'wintertodt', 'zalcano', 'zulrah'
 ]
 
-COMPUTED_METRICS = ['ehp', 'ehb']
-
 # Combine all metrics for validation
-ALL_METRICS = SKILL_METRICS + ACTIVITY_METRICS + BOSS_METRICS + COMPUTED_METRICS
+ALL_METRICS = SKILL_METRICS + ACTIVITY_METRICS + BOSS_METRICS
 
 def transform_metric_name(metric):
     """
@@ -68,7 +66,7 @@ def transform_metric_name(metric):
 def fetch_metric(metric: str):
     """
     Fetches scoreboard data for a given metric and returns a list of key-value pairs
-    with player names and values.
+    with player names and values. Uses caching to reduce API calls.
     
     Args:
         metric (str): The metric to fetch data for (e.g., 'chambers_of_xeric', 'fishing', etc.)
@@ -76,6 +74,27 @@ def fetch_metric(metric: str):
     Returns:
         list: List of dictionaries with 'name' and 'value' keys
     """
+    # Create cache path for this metric
+    cache_path = os.path.join(METRICS_CACHE, f"{metric}.json")
+    
+    # Check for cached data first
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+                
+            # Check if cache is less than 15 minutes old
+            last_cached_str = cache_data.get('lastCachedTime', '1970-01-01T00:00:00.000Z')
+            last_cached_dt = datetime.strptime(last_cached_str, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+            current_dt = datetime.now(timezone.utc)
+            
+            if current_dt - last_cached_dt < timedelta(minutes=15):
+                print(f"Using cached data for metric {metric} (less than 15 minutes old)")
+                return cache_data.get('scoreboard', [])
+        except Exception as e:
+            print(f"Error reading cache for metric {metric}: {e}")
+    
+    # If no valid cache exists, fetch from API
     url = f"{BASE_URL}/{GROUP_ID}/hiscores?metric={metric}&limit=500"
     headers = {
         "Content-Type": "application/json",
@@ -112,7 +131,17 @@ def fetch_metric(metric: str):
         if value is not None:
             scoreboard.append({"name": player_name, "value": value})
     
-    return sorted(scoreboard, key=lambda x: x["value"], reverse=True)
+    scoreboard = sorted(scoreboard, key=lambda x: x["value"], reverse=True)
+    
+    # Save to cache
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    with open(cache_path, 'w', encoding='utf-8') as f:
+        json.dump({
+            'scoreboard': scoreboard,
+            'lastCachedTime': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        }, f, ensure_ascii=False)
+    
+    return scoreboard
 
 def get_recent_competitions(group_id):
     """
@@ -363,7 +392,6 @@ def format_player_data(player_data):
     
     output = []
     
-    
     player_name = player_data.get('displayName', 'N/A')
 
     # Add Source URL
@@ -380,11 +408,7 @@ def format_player_data(player_data):
     if not ('latestSnapshot' in player_data and
             player_data['latestSnapshot'] is not None and
             'data' in player_data['latestSnapshot'] and
-            player_data['latestSnapshot']['data'] is not None and
-            'skills' in player_data['latestSnapshot']['data'] and
-            player_data['latestSnapshot']['data']['skills'] is not None and
-            'bosses' in player_data['latestSnapshot']['data'] and
-            player_data['latestSnapshot']['data']['bosses'] is not None):
+            player_data['latestSnapshot']['data'] is not None):
         return None  # Return None if any required data is missing
 
     # If we have all required data, proceed with formatting
@@ -399,6 +423,20 @@ def format_player_data(player_data):
         level = skill_info['level'] if skill_info['level'] != -1 else 1
         experience = skill_info['experience'] if skill_info['experience'] != -1 else 0
         output.append(f"{skill_name.capitalize():<15} {level:<10} {experience:<15}")
+    output.append("")
+    
+    # Activities data
+    activities_data = player_data['latestSnapshot']['data']['activities']
+    
+    output.append("===== ACTIVITIES =====")
+    output.append(f"{'Activity':<25} {'Score':<10}")
+    output.append("-" * 35)
+    
+    for activity_name, activity_info in activities_data.items():
+        # Show all activities, and convert -1 values to 0
+        score = activity_info['score'] if activity_info['score'] != -1 else 0
+        activity_display_name = activity_name.replace('_', ' ').title()
+        output.append(f"{activity_display_name:<25} {score:<10}")
     
     output.append("")
     
@@ -435,7 +473,9 @@ def format_metrics(metrics_data):
     output = []
     
     # Add header
-    output.append("CLAN METRICS FOR ", len(metrics_data), " MEMBERS")
+    # Use length of first metric's scoreboard for member count
+    member_count = len(next(iter(metrics_data.values()))) if metrics_data else 0
+    output.append(f"CLAN METRICS FOR {member_count} MEMBERS")
     
     # Process each metric
     for metric_name, scoreboard in metrics_data.items():
