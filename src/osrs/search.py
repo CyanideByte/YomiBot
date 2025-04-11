@@ -226,7 +226,7 @@ async def search_web(search_term):
     }
     
     try:
-        print(f"API CALL: BRAVE SEARCH for '{search_term}'")
+        print(f"[API CALL: BRAVE] Search for '{search_term}'")
         # Perform search query
         response = requests.get(search_url, headers=headers, params=params)
         

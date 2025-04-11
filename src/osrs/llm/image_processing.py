@@ -28,7 +28,7 @@ async def identify_items_in_images(images: list[Image.Image]) -> list[str]:
         """
         
         content = [prompt] + images
-        print("API CALL: GEMINI identify_items_in_images")
+        print("[API CALL: GEMINI] identify_items_in_images")
         generation = await asyncio.to_thread(
             lambda: model.generate_content(content)
         )

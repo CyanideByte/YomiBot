@@ -101,7 +101,7 @@ def fetch_metric(metric: str):
             print(f"Error reading cache for metric {metric}: {e}")
     
     # If no valid cache exists, fetch from API
-    print("API CALL: WOM group metrics")
+    print("[API CALL: WOM] group metrics")
     url = f"{BASE_URL}/groups/{GROUP_ID}/hiscores?metric={metric}&limit=500"
     headers = {
         "Content-Type": "application/json",
@@ -113,6 +113,8 @@ def fetch_metric(metric: str):
 
     response = requests.get(url, headers=headers)
     response.raise_for_status()
+
+    print(f"Successfully fetched data for metric: {metric}")
     
     data = response.json()
     possible_keys = ["kills", "level", "score", "value"]
@@ -155,7 +157,7 @@ def get_recent_competitions(group_id):
     Retrieves the most recent competitions for the group, 
     sorted by start date (most recent first).
     """
-    print("API CALL: WOM group competitions")
+    print("[API CALL: WOM] group competitions")
     url = f"{BASE_URL}/groups/{group_id}/competitions"
     try:
         headers = {
@@ -244,7 +246,7 @@ def get_guild_members_data():
             last_cached_dt = datetime.strptime(last_cached_str, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
             current_dt = datetime.now(timezone.utc)
             if current_dt - last_cached_dt < timedelta(minutes=15):
-                print(f"Using cached guild members list (less than 15 minutes old)")
+                # print(f"Using cached guild members list (less than 15 minutes old)")
                 return cache_data.get('memberships')
             else:
                 print(f"Guild members cache is older than 15 minutes, fetching fresh data")
@@ -261,7 +263,7 @@ def get_guild_members_data():
         if config.wise_old_man_api_key:
             headers["x-api-key"] = config.wise_old_man_api_key
         
-        print("API CALL: WOM group list members data")
+        print("[API CALL: WOM] group list members data")
         response = requests.get(f"{BASE_URL}/groups/{GROUP_ID}", headers=headers)
         response.raise_for_status()
         group_data = response.json()
@@ -393,7 +395,7 @@ async def fetch_player_details(player, session=None):
             print(f"Error reading cache for {username}: {e}")
     
     # If no valid cache exists, fetch from API
-    print("API CALL: WOM get player details")
+    print("[API CALL: WOM] get player details")
     url = f"{BASE_URL}/players/{api_username}"
     headers = {
         "Content-Type": "application/json",
@@ -525,7 +527,7 @@ async def fetch_player_details_by_username(username: str, guild_member_list=None
             print(f"Error reading cache for {username}: {e}. Fetching fresh data.")
             
     # 2. If no valid cache exists, fetch from API
-    print("API CALL: WOM get player details")
+    print("[API CALL: WOM] get player details")
     url = f"{BASE_URL}/players/{api_username}"
     headers = {
         "Content-Type": "application/json",
