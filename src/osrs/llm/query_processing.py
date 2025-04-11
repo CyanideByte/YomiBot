@@ -30,10 +30,46 @@ Content Rules:
 5. Prioritize key information the player needs
 6. Format information clearly and consistently
 7. Break information into clear sections
-8. Keep answers concise (under 2000 characters)
+8. Keep answers concise (under 2,000 characters)
 9. ALWAYS include a "Sources:" section at the end of your response with all source URLs
 
 Remember: Create clear, easy-to-read responses that focus on the key information.
+"""
+
+# Formatting rules used in multiple places
+FORMATTING_RULES = """
+
+Provide a response following these specific formatting rules:
+1. Start with a **Section Header**
+2. Use - for list items (not bullet points)
+3. Bold ONLY:
+   - Player names (e.g., **PlayerName**)
+   - Item names (e.g., **Abyssal whip**)
+   - Monster/boss names (e.g., **Abyssal demon**)
+   - Location names (e.g., **Wilderness**)
+   - Section headers
+4. Do NOT bold:
+   - Drop rates
+   - Prices
+   - Combat stats
+   - Other numerical values
+5. Use comma notation for numbers over a million (e.g., "1,234,567" instead of "1234567")
+6. ALWAYS include sources at the end of your response:
+   - You MUST start a new paragraph with the exact text "Sources:" (including the colon)
+   - The "Sources:" header MUST be on its own line
+   - List each source URL on its own line with a hyphen (-) bullet point
+   - Format ALL sources consistently as: "- <URL>" (no prefixes like "Player data:")
+   - Example:
+     
+     Sources:
+     - <https://oldschool.runescape.wiki/w/Abyssal_whip>
+     - <https://wiseoldman.net/players/playername>
+   
+   - Do NOT add empty lines between sources
+   - Do NOT include duplicate URLs in the sources section
+   - Include ALL relevant sources
+   - The "Sources:" header is ABSOLUTELY REQUIRED for ALL responses
+   - NEVER list URLs without the "Sources:" header
 """
 
 async def process_unified_query(
@@ -145,40 +181,7 @@ async def process_unified_query(
             
             This query is about clan-wide metrics. Use the provided metrics data to answer the query.
             Do not speculate about information not present in the metrics data.
-            """
-            
-            # Add formatting instructions
-            prompt += """
-            
-            Provide a response following these specific formatting rules:
-            1. Start with a **Section Header**
-            2. Use - for list items (not bullet points)
-            3. Bold ONLY:
-               - Player names (e.g., **PlayerName**)
-               - Item names (e.g., **Abyssal whip**)
-               - Monster/boss names (e.g., **Abyssal demon**)
-               - Location names (e.g., **Wilderness**)
-               - Section headers
-            4. Do NOT bold:
-               - Drop rates
-               - Prices
-               - Combat stats
-               - Other numerical values
-            5. ALWAYS include sources at the end of your response:
-               - You MUST start a new paragraph with the exact text "Sources:" (including the colon)
-               - The "Sources:" header MUST be on its own line
-               - List each source URL on its own line with a hyphen (-) bullet point
-               - Format ALL sources consistently as: "- <URL>" (no prefixes like "Player data:")
-               - Example:
-                 
-                 Sources:
-                 - <https://wiseoldman.net/groups/3773/hiscores>
-               
-               - Do NOT add empty lines between sources
-               - Do NOT include duplicate URLs in the sources section
-               - Include ALL relevant sources
-               - The "Sources:" header is ABSOLUTELY REQUIRED for ALL responses
-               - NEVER list URLs without the "Sources:" header
+            {FORMATTING_RULES}
             """
             
             try:
@@ -283,6 +286,7 @@ async def process_unified_query(
             {player_context}
             
             This query can be answered using ONLY the player data provided. Do not speculate about information not present in the player data.
+            {FORMATTING_RULES}
             """
         else:
             # For queries that need both data sources, use the unified prompt
@@ -307,41 +311,8 @@ async def process_unified_query(
                 OSRS Wiki and Web Information:
                 {wiki_content}
                 """
-        
-        # Add formatting instructions
-        prompt += """
-        
-        Provide a response following these specific formatting rules:
-        1. Start with a **Section Header**
-        2. Use - for list items (not bullet points)
-        3. Bold ONLY:
-           - Player names (e.g., **PlayerName**)
-           - Item names (e.g., **Abyssal whip**)
-           - Monster/boss names (e.g., **Abyssal demon**)
-           - Location names (e.g., **Wilderness**)
-           - Section headers
-        4. Do NOT bold:
-           - Drop rates
-           - Prices
-           - Combat stats
-           - Other numerical values
-        5. ALWAYS include sources at the end of your response:
-           - You MUST start a new paragraph with the exact text "Sources:" (including the colon)
-           - The "Sources:" header MUST be on its own line
-           - List each source URL on its own line with a hyphen (-) bullet point
-           - Format ALL sources consistently as: "- <URL>" (no prefixes like "Player data:")
-           - Example:
-             
-             Sources:
-             - <https://oldschool.runescape.wiki/w/Abyssal_whip>
-             - <https://wiseoldman.net/players/playername>
-           
-           - Do NOT add empty lines between sources
-           - Do NOT include duplicate URLs in the sources section
-           - Include ALL relevant sources, including player data sources
-           - The "Sources:" header is ABSOLUTELY REQUIRED for ALL responses
-           - NEVER list URLs without the "Sources:" header
-        """
+            
+            prompt += FORMATTING_RULES
         
         # Generate the response
         response_start_time = time.time()
