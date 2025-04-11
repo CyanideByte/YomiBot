@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import time
 import aiohttp
 import google.generativeai as genai
 from config.config import config
@@ -202,13 +203,10 @@ async def generate_search_term(query):
     try:
         model = genai.GenerativeModel(config.gemini_model)
         
-        # Get the current local date
-        current_date = datetime.datetime.now().strftime("%B %d, %Y")
-        
         prompt = f"""
         You are an assistant that helps generate effective search terms for Old School RuneScape (OSRS) related queries.
         
-        Today's date is {current_date}.
+        Today's date is: {time.strftime('%A %B %d, %Y')}
         
         Given the following user query, determine if additional information is needed to provide a complete answer.
         

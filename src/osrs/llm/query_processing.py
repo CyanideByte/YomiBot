@@ -294,6 +294,8 @@ async def process_unified_query(
             # For queries that need both data sources, use the unified prompt
             prompt = f"""
             {UNIFIED_SYSTEM_PROMPT}
+
+            Today's date is: {time.strftime('%A %B %d, %Y')}
             
             User Query: {user_query}
             """
