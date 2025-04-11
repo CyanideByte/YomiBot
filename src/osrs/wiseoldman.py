@@ -462,57 +462,51 @@ async def fetch_player_details_by_username(username: str, guild_member_list=None
             # Check for essential cache keys
             if 'lastFileCachedTime' not in cache_data:
                 print(f"Cache file for {username} is missing 'lastFileCachedTime', fetching fresh data.")
-                return None
-            
-            if 'player_data' not in cache_data:
+            elif 'player_data' not in cache_data:
                 print(f"Cache file for {username} is missing 'player_data', fetching fresh data.")
-                return None
-            
-            cached_data = cache_data['player_data']
+            else:
+                cached_data = cache_data['player_data']
+                need_fresh_data = False
 
-            # If player is a guild member, try timestamp-based caching first
-            if current_player_obj and \
-               'updatedAt' in cached_data and 'lastChangedAt' in cached_data and \
-               'updatedAt' in current_player_obj and 'lastChangedAt' in current_player_obj:
+                # If player is a guild member, try timestamp-based caching first
+                if current_player_obj and \
+                   'updatedAt' in cached_data and 'lastChangedAt' in cached_data and \
+                   'updatedAt' in current_player_obj and 'lastChangedAt' in current_player_obj:
 
-                try:
-                    # Parse dates and compare
-                    cached_updated = datetime.fromisoformat(cached_data['updatedAt'])
-                    cached_changed = datetime.fromisoformat(cached_data['lastChangedAt'])
-                    current_updated = datetime.fromisoformat(current_player_obj['updatedAt'])
-                    current_changed = datetime.fromisoformat(current_player_obj['lastChangedAt'])
+                    try:
+                        # Parse dates and compare
+                        cached_updated = datetime.fromisoformat(cached_data['updatedAt'])
+                        cached_changed = datetime.fromisoformat(cached_data['lastChangedAt'])
+                        current_updated = datetime.fromisoformat(current_player_obj['updatedAt'])
+                        current_changed = datetime.fromisoformat(current_player_obj['lastChangedAt'])
 
-                    if current_updated <= cached_updated and current_changed <= cached_changed:
-                        print(f"Using cached data for guild member {username} (no updates available)")
-                        return cached_data
+                        if current_updated <= cached_updated and current_changed <= cached_changed:
+                            print(f"Using cached data for guild member {username} (no updates available)")
+                            return cached_data
 
-                    print(f"Updates available for guild member {username}, fetching fresh data")
-                    return None
+                        print(f"Updates available for guild member {username}, fetching fresh data")
+                        need_fresh_data = True
 
-                except (ValueError, TypeError) as e:
-                    print(f"Error comparing timestamps for {username}: {e}, falling back to time-based cache")
-                    # Fall through to time-based cache check
-            
-            # For non-guild members or if timestamp comparison failed, use time-based caching
-            try:
-                last_cached_dt = datetime.fromisoformat(cache_data['lastFileCachedTime'])
-                current_dt = datetime.now(timezone.utc)
+                    except (ValueError, TypeError) as e:
+                        print(f"Error comparing timestamps for {username}: {e}, falling back to time-based cache")
 
-                if current_dt - last_cached_dt < cache_duration:
-                    print(f"Using cached data for {username} (less than {cache_duration} old)")
-                    return cached_data
+                # Only do time-based cache check if we haven't determined we need fresh data
+                if not need_fresh_data:
+                    try:
+                        last_cached_dt = datetime.fromisoformat(cache_data['lastFileCachedTime'])
+                        current_dt = datetime.now(timezone.utc)
 
-                print(f"Cache for {username} is older than {cache_duration}, fetching fresh data")
-                return None
+                        if current_dt - last_cached_dt < cache_duration:
+                            print(f"Using cached data for {username} (less than {cache_duration} old)")
+                            return cached_data
 
-            except ValueError as e:
-                print(f"Error parsing cache timestamp for {username}: {e}, fetching fresh data")
-                return None
+                        print(f"Cache for {username} is older than {cache_duration}, fetching fresh data")
+                    except ValueError as e:
+                        print(f"Error parsing cache timestamp for {username}: {e}, fetching fresh data")
 
         except Exception as e:
             print(f"Error reading cache for {username}: {e}. Fetching fresh data.")
-            return None
-
+            
     # 2. If no valid cache exists, fetch from API
     url = f"https://api.wiseoldman.net/v2/players/{api_username}"
     headers = {
@@ -588,9 +582,19 @@ def format_player_data(player_data):
     source_url = f"https://wiseoldman.net/players/{player_name.lower().replace(' ', '_')}"
     output.append(f"Source URL: {source_url}")
     output.append("")
+
+    type_mapping = {
+        "regular": "Main",
+        "ironman": "Ironman",
+        "hardcore": "Hardcore Ironman"
+    }
+
+    account_type = player_data.get('type', 'N/A')
+    mapped_type = type_mapping.get(account_type, 'Unknown')
     
     # Player basic info
     output.append(f"Player: {player_name}")
+    output.append(f"Account type: {mapped_type}")
     output.append(f"Combat Level: {player_data.get('combatLevel', 'N/A')}")
     output.append(f"Total Experience: {player_data.get('exp', 'N/A')}")
     
