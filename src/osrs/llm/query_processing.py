@@ -132,6 +132,7 @@ async def process_unified_query(
             Write a focused response ONLY about the specific topic they asked about. Keep it under 500 characters.
             """
             
+            print("API CALL: GEMINI prohibited query explanation")
             generation = await asyncio.to_thread(
                 lambda: model.generate_content(prompt)
             )
@@ -188,6 +189,7 @@ async def process_unified_query(
                 if status_message:
                     await status_message.edit(content="Generating response...")
                     
+                print("API CALL: GEMINI metrics data generation")
                 generation = await asyncio.to_thread(
                     lambda: model.generate_content(prompt)
                 )
@@ -320,6 +322,7 @@ async def process_unified_query(
             if status_message:
                 await status_message.edit(content="Generating response...")
                 
+            print("API CALL: GEMINI unified query generation")
             generation = await asyncio.to_thread(
                 lambda: model.generate_content(prompt)
             )
@@ -454,6 +457,7 @@ async def roast_player(player_data):
         """
         
         try:
+            print("API CALL: GEMINI player roast generation")
             generation = await asyncio.to_thread(
                 lambda: model.generate_content(prompt)
             )

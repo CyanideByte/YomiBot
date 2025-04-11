@@ -8,7 +8,7 @@ from config.config import PROJECT_ROOT, config, PLAYERS_CACHE, WOM_CACHE, METRIC
 
 # Replace with your clan's group ID
 GROUP_ID = "3773"
-BASE_URL = "https://api.wiseoldman.net/v2/groups"
+BASE_URL = "https://api.wiseoldman.net/v2"
 
 def get_guild_cache_path():
     """Get the cache file path for guild members"""
@@ -51,6 +51,12 @@ BOSS_METRICS = [
     'tombs_of_amascut_expert', 'tzkal_zuk', 'tztok_jad', 'vardorvis', 'venenatis', 'vetion',
     'vorkath', 'wintertodt', 'zalcano', 'zulrah'
 ]
+
+TYPE_MAPPING = {
+        "regular": "Main",
+        "ironman": "Ironman",
+        "hardcore": "Hardcore Ironman"
+    }
 
 # Combine all metrics for validation
 ALL_METRICS = SKILL_METRICS + ACTIVITY_METRICS + BOSS_METRICS
@@ -95,7 +101,8 @@ def fetch_metric(metric: str):
             print(f"Error reading cache for metric {metric}: {e}")
     
     # If no valid cache exists, fetch from API
-    url = f"{BASE_URL}/{GROUP_ID}/hiscores?metric={metric}&limit=500"
+    print("API CALL: WOM group metrics")
+    url = f"{BASE_URL}/groups/{GROUP_ID}/hiscores?metric={metric}&limit=500"
     headers = {
         "Content-Type": "application/json",
         "User-Agent": config.wise_old_man_user_agent or config.user_agent
@@ -103,7 +110,7 @@ def fetch_metric(metric: str):
     
     if config.wise_old_man_api_key:
         headers["x-api-key"] = config.wise_old_man_api_key
-        
+
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     
@@ -148,7 +155,8 @@ def get_recent_competitions(group_id):
     Retrieves the most recent competitions for the group, 
     sorted by start date (most recent first).
     """
-    url = f"{BASE_URL}/{group_id}/competitions"
+    print("API CALL: WOM group competitions")
+    url = f"{BASE_URL}/groups/{group_id}/competitions"
     try:
         headers = {
             "Content-Type": "application/json",
@@ -157,7 +165,7 @@ def get_recent_competitions(group_id):
         
         if config.wise_old_man_api_key:
             headers["x-api-key"] = config.wise_old_man_api_key
-            
+
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         competitions = response.json()
@@ -213,7 +221,7 @@ def setup_competition_commands(bot):
     
     # Player command has been moved to llm.py as a roast command
 
-def get_guild_members():
+def get_guild_members_data():
     """
     Returns the guild's membership data from the WiseOldMan API.
     If the cache is less than an hour old, returns cached data.
@@ -252,8 +260,9 @@ def get_guild_members():
         
         if config.wise_old_man_api_key:
             headers["x-api-key"] = config.wise_old_man_api_key
-            
-        response = requests.get(f"{BASE_URL}/{GROUP_ID}", headers=headers)
+        
+        print("API CALL: WOM group list members data")
+        response = requests.get(f"{BASE_URL}/groups/{GROUP_ID}", headers=headers)
         response.raise_for_status()
         group_data = response.json()
         
@@ -281,20 +290,27 @@ def get_guild_members():
                 print(f"Error reading expired cache: {e}")
         return []
 
-def get_guild_members_data():
+def get_guild_member_by_name(username):
     """
-    Returns the guild's membership data from the WiseOldMan API.
-    This is a wrapper around get_guild_members() for clarity of purpose.
+    Returns guild member data for a specific username.
+    Search is case-insensitive.
     
+    Args:
+        username (str): The username to search for
+        
     Returns:
-        list: A list of membership objects containing player data
+        dict: The member data if found, None if not found
     """
-    return get_guild_members()
+    memberships = get_guild_members_data()
+    for member in memberships:
+        if member['player']['displayName'].lower() == username.lower():
+            return member
+    return None
 
-def get_guild_member_names():
+def get_guild_members_names():
     """
     Returns a list of guild member display names.
-    Uses get_guild_members() but extracts only the display names.
+    Uses get_guild_members_data() but extracts only the display names.
     
     Returns:
         list: A list of member display names
@@ -377,7 +393,8 @@ async def fetch_player_details(player, session=None):
             print(f"Error reading cache for {username}: {e}")
     
     # If no valid cache exists, fetch from API
-    url = f"https://api.wiseoldman.net/v2/players/{api_username}"
+    print("API CALL: WOM get player details")
+    url = f"{BASE_URL}/players/{api_username}"
     headers = {
         "Content-Type": "application/json",
         "User-Agent": config.wise_old_man_user_agent or config.user_agent
@@ -508,7 +525,8 @@ async def fetch_player_details_by_username(username: str, guild_member_list=None
             print(f"Error reading cache for {username}: {e}. Fetching fresh data.")
             
     # 2. If no valid cache exists, fetch from API
-    url = f"https://api.wiseoldman.net/v2/players/{api_username}"
+    print("API CALL: WOM get player details")
+    url = f"{BASE_URL}/players/{api_username}"
     headers = {
         "Content-Type": "application/json",
         "User-Agent": config.wise_old_man_user_agent or config.user_agent
@@ -583,14 +601,8 @@ def format_player_data(player_data):
     output.append(f"Source URL: {source_url}")
     output.append("")
 
-    type_mapping = {
-        "regular": "Main",
-        "ironman": "Ironman",
-        "hardcore": "Hardcore Ironman"
-    }
-
     account_type = player_data.get('type', 'N/A')
-    mapped_type = type_mapping.get(account_type, 'Unknown')
+    mapped_type = TYPE_MAPPING.get(account_type, 'Unknown')
     
     # Player basic info
     output.append(f"Player: {player_name}")
@@ -679,7 +691,9 @@ def format_metrics(metrics_data):
         
         # Add player data for this metric
         for i, entry in enumerate(scoreboard):  # Include all players
-            player_name = entry["name"]
+            member = get_guild_member_by_name(entry["name"])
+            type = TYPE_MAPPING.get(member['player']['type'], 'Unknown')
+            player_name = "(" + type + ") " + entry["name"]
             value = entry["value"]
             
             # Format the value based on the metric type

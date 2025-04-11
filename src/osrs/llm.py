@@ -12,7 +12,7 @@ from osrs.wiki import fetch_osrs_wiki_pages, fetch_osrs_wiki
 from osrs.search import get_web_search_context, format_search_results
 
 # Import player tracking functions from tracker.py
-from osrs.wiseoldman import get_guild_members, fetch_player_details, format_player_data
+from osrs.wiseoldman import get_guild_members_data, fetch_player_details, format_player_data
 
 # Import from refactored modules
 from osrs.llm.commands import register_commands

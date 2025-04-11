@@ -4,7 +4,7 @@ import aiohttp
 import google.generativeai as genai
 from config.config import config
 from osrs.llm.image_processing import fetch_image, identify_items_in_images
-from osrs.wiseoldman import get_guild_members, get_guild_member_names, fetch_player_details, fetch_metric
+from osrs.wiseoldman import get_guild_members_data, get_guild_members_names, fetch_player_details, fetch_metric
 
 # Predefined metric names for OSRS
 SKILL_METRICS = [
@@ -91,6 +91,7 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         If no pages can be determined, respond with: "[NO_PAGES_FOUND]"
         """
         
+        print("API CALL: GEMINI identify_wiki_pages")
         generation = await asyncio.to_thread(
             lambda: model.generate_content(prompt)
         )
@@ -169,6 +170,7 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
         User query: {user_query}
         """
         
+        print("API CALL: GEMINI identify_mentioned_players")
         generation = await asyncio.to_thread(
             lambda: model.generate_content(prompt)
         )
@@ -220,6 +222,7 @@ async def generate_search_term(query):
         Respond ONLY with either [NO_SEARCH_NEEDED] or the search term, no additional text or explanation.
         """
         
+        print("API CALL: GEMINI generate_search_term")
         generation = await asyncio.to_thread(
             lambda: model.generate_content(prompt)
         )
@@ -283,6 +286,7 @@ async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
         """
         
         # Use a shorter timeout for this decision to avoid adding too much latency
+        print("API CALL: GEMINI is_player_only_query")
         response = await asyncio.to_thread(
             lambda: model.generate_content(prompt).text.strip()
         )
@@ -343,6 +347,7 @@ async def is_prohibited_query(user_query: str) -> bool:
         """
         
         # Use a shorter timeout for this decision
+        print("API CALL: GEMINI is_prohibited_query")
         response = await asyncio.to_thread(
             lambda: model.generate_content(prompt).text.strip()
         )
@@ -369,7 +374,7 @@ async def identify_and_fetch_players(user_query: str, requester_name=None):
     
     try:
         # Get guild members first since we need both names and full data
-        guild_members = get_guild_members()
+        guild_members = get_guild_members_data()
         # Extract names from guild members
         guild_member_names = [member['player']['displayName'] for member in guild_members]
         identified_players, is_all_members = await identify_mentioned_players(user_query, guild_member_names, requester_name)
@@ -555,6 +560,7 @@ async def identify_mentioned_metrics(user_query: str) -> list:
         Respond ONLY with a comma-separated list of identified metrics, or "none" if no metrics are mentioned.
         """
         
+        print("API CALL: GEMINI identify_mentioned_metrics")
         generation = await asyncio.to_thread(
             lambda: model.generate_content(prompt)
         )
@@ -659,6 +665,7 @@ async def is_wiki_only_query(user_query: str, wiki_content: str) -> bool:
         """
         
         # Use a shorter timeout for this decision
+        print("API CALL: GEMINI is_wiki_only_query")
         response = await asyncio.to_thread(
             lambda: model.generate_content(prompt).text.strip()
         )
