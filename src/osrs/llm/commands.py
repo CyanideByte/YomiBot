@@ -139,7 +139,7 @@ def register_commands(bot):
             encoded_prompt = quote(prompt)
             
             # Construct the API URL
-            url = f"https://pollinations.ai/prompt/{encoded_prompt}?seed={seed}&nologo=true&model=flux"
+            url = f"https://pollinations.ai/prompt/{encoded_prompt}?seed={seed}&nologo=true&model=flux&enhance=true"
 
             # Make the request to get the image
             async with aiohttp.ClientSession() as session:
