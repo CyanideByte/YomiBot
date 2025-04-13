@@ -444,7 +444,7 @@ async def roast_player(player_data):
         Rules for the roast:
         1. ONLY focus on negatives - low skills, pathetic boss KC's, and embarrassingly high time spent on easy content
         2. The roast must be ONE savage paragraph (not bullet points)
-        3. Savage comparisons are encouraged (e.g. "a level 3 bot has better stats")
+        3. Savage comparisons are encouraged
         4. Mock any high KC's in easy bosses while pointing out zero KC's in real content
         5. Ridicule high levels in easy skills while roasting their terrible levels in actual challenging skills
         6. Use words like "pathetic", "embarrassing", "terrible", "laughable"

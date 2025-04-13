@@ -1,6 +1,8 @@
 # Discord command registration
 import aiohttp
 import os
+import random
+from urllib.parse import quote
 from osrs.llm.query_processing import process_unified_query, roast_player
 from osrs.wiseoldman import (
     fetch_player_details, fetch_player_details_by_username,
@@ -118,3 +120,45 @@ def register_commands(bot):
         except Exception as e:
             print(f"Error in roast command: {e}")
             await processing_msg.edit(content=f"Something went wrong while trying to roast this noob. They're probably not worth roasting anyway.")
+
+    @bot.command(name='imagine', help='Generates an image based on your prompt')
+    async def generate_image(ctx, *, prompt: str = ""):
+        if not prompt:
+            await ctx.send("Please provide a prompt for the image. Example: !image a majestic dragon")
+            return
+
+        # Send initial processing message
+        processing_msg = await ctx.send(
+            "Generating image...",
+            reference=ctx.message
+        )
+
+        try:
+            # Generate random seed and encode prompt
+            seed = random.randint(1, 1000000)
+            encoded_prompt = quote(prompt)
+            
+            # Construct the API URL
+            url = f"https://pollinations.ai/prompt/{encoded_prompt}?seed={seed}&nologo=true&model=flux"
+
+            # Make the request to get the image
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        await processing_msg.edit(content=f"Error: Failed to generate image (Status {response.status})")
+                        return
+                    
+                    # Get the image data
+                    image_data = await response.read()
+                    
+                    # Edit the message with the image
+                    from discord import File
+                    from io import BytesIO
+                    
+                    # Create a file-like object from the image data
+                    file = File(BytesIO(image_data), filename="generated_image.jpg")
+                    await processing_msg.edit(content=f"🎨 Generated image for: {prompt}", attachments=[file])
+
+        except Exception as e:
+            print(f"Error in image command: {e}")
+            await processing_msg.edit(content=f"Sorry, something went wrong while generating the image: {str(e)}")
