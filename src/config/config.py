@@ -43,10 +43,14 @@ class Config:
         self.bot_token = None
         self.spotify_credentials = None
         self.gemini_api_key = None
+        self.openai_api_key = None
+        self.anthropic_api_key = None
+        self.groq_api_key = None
+        self.openrouter_api_key = None
         self.brave_api_key = None
         self.wise_old_man_api_key = None
         self.wise_old_man_user_agent = None
-        self.gemini_model = "gemini-2.0-flash"
+        self.default_model = "openrouter/optimus-alpha"
         self.user_agent = "YomiBot"
         ensure_cache_directories()  # Ensure cache directories exist on startup
         self.load_config()
@@ -56,6 +60,10 @@ class Config:
         self._load_bot_token()
         self._load_spotify_credentials()
         self._load_gemini_config()
+        self._load_openai_config()
+        self._load_anthropic_config()
+        self._load_groq_config()
+        self._load_openrouter_config()
         self._load_brave_config()
         self._load_wise_old_man_config()
     
@@ -125,6 +133,33 @@ class Config:
         
         if not self.gemini_api_key:
             print("Warning: GEMINI_API_KEY environment variable is not set")
+    def _load_openai_config(self):
+        """Load OpenAI API configuration from environment variables"""
+        self.openai_api_key = os.getenv('OPENAI_API_KEY')
+        print(f"OPENAI_API_KEY from environment: {'Found' if self.openai_api_key else 'Not found'}")
+        if not self.openai_api_key:
+            print("Warning: OPENAI_API_KEY environment variable is not set")
+
+    def _load_anthropic_config(self):
+        """Load Anthropic API configuration from environment variables"""
+        self.anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
+        print(f"ANTHROPIC_API_KEY from environment: {'Found' if self.anthropic_api_key else 'Not found'}")
+        if not self.anthropic_api_key:
+            print("Warning: ANTHROPIC_API_KEY environment variable is not set")
+
+    def _load_groq_config(self):
+        """Load Groq API configuration from environment variables"""
+        self.groq_api_key = os.getenv('GROQ_API_KEY')
+        print(f"GROQ_API_KEY from environment: {'Found' if self.groq_api_key else 'Not found'}")
+        if not self.groq_api_key:
+            print("Warning: GROQ_API_KEY environment variable is not set")
+
+    def _load_openrouter_config(self):
+        """Load OpenRouter API configuration from environment variables"""
+        self.openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
+        print(f"OPENROUTER_API_KEY from environment: {'Found' if self.openrouter_api_key else 'Not found'}")
+        if not self.openrouter_api_key:
+            print("Warning: OPENROUTER_API_KEY environment variable is not set")
     
     def _load_brave_config(self):
         """Load Brave Search API configuration from environment variables"""

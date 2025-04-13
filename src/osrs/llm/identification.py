@@ -2,8 +2,8 @@ import asyncio
 import datetime
 import time
 import aiohttp
-import google.generativeai as genai
 from config.config import config
+from osrs.llm.llm_service import llm_service
 from osrs.llm.image_processing import fetch_image, identify_items_in_images
 from osrs.wiseoldman import get_guild_members_data, get_guild_members_names, fetch_player_details, fetch_metric
 
@@ -48,8 +48,6 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         return []
     
     try:
-        model = genai.GenerativeModel(config.gemini_model)
-        
         # Stage 1: Process images if present
         identified_items = []
         if image_urls:
@@ -91,13 +89,10 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         Example: "Dragon_scimitar,Abyssal_whip"
         If no pages can be determined, respond with: "[NO_PAGES_FOUND]"
         """
-        
-        print("[API CALL: GEMINI] identify_wiki_pages")
-        generation = await asyncio.to_thread(
-            lambda: model.generate_content(prompt)
-        )
-        response_text = generation.text.strip()
-        
+
+        print("[API CALL: LLM SERVICE] identify_wiki_pages")
+        response_text = await llm_service.generate_text(prompt)
+
         # Check if the response indicates no pages were found
         if response_text == "[NO_PAGES_FOUND]":
             print("Identified wiki pages: []")
@@ -124,7 +119,6 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
         return [], False
     
     try:
-        model = genai.GenerativeModel(config.gemini_model)
         
         # Format the guild members list for the prompt
         members_list = str(guild_members)
@@ -172,10 +166,8 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
         """
         
         print("[API CALL: GEMINI] identify_mentioned_players")
-        generation = await asyncio.to_thread(
-            lambda: model.generate_content(prompt)
-        )
-        response_text = generation.text.strip()
+        response_text = await llm_service.generate_text(prompt)
+        response_text = response_text.strip()
         
         # Check special responses
         if response_text == "[NO_MEMBERS]":
@@ -201,7 +193,6 @@ async def generate_search_term(query):
         return query
     
     try:
-        model = genai.GenerativeModel(config.gemini_model)
         
         prompt = f"""
         You are an assistant that helps generate effective search terms for Old School RuneScape (OSRS) related queries.
@@ -221,10 +212,8 @@ async def generate_search_term(query):
         """
         
         print("[API CALL: GEMINI] generate_search_term")
-        generation = await asyncio.to_thread(
-            lambda: model.generate_content(prompt)
-        )
-        search_term = generation.text.strip()
+        response_text = await llm_service.generate_text(prompt)
+        search_term = response_text.strip()
         print(f"Generated search term: {search_term}")
         return search_term
         
@@ -248,7 +237,6 @@ async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
         
     try:
         # If we have player data, use Gemini to determine if it's a player-only query
-        model = genai.GenerativeModel(config.gemini_model)
         
         # Create a simplified version of the player data for analysis
         simplified_data = []
@@ -285,9 +273,7 @@ async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
         
         # Use a shorter timeout for this decision to avoid adding too much latency
         print("[API CALL: GEMINI] is_player_only_query")
-        response = await asyncio.to_thread(
-            lambda: model.generate_content(prompt).text.strip()
-        )
+        response = await llm_service.generate_text(prompt)
         
         is_player_only = response.upper() == "YES"
         print(f"Query analysis result: {response} (is_player_only={is_player_only})")
@@ -314,7 +300,6 @@ async def is_prohibited_query(user_query: str) -> bool:
         return False
         
     try:
-        model = genai.GenerativeModel(config.gemini_model)
         
         prompt = f"""
         Analyze this query about OSRS and determine if it's about prohibited topics that should not be answered.
@@ -346,9 +331,7 @@ async def is_prohibited_query(user_query: str) -> bool:
         
         # Use a shorter timeout for this decision
         print("[API CALL: GEMINI] is_prohibited_query")
-        response = await asyncio.to_thread(
-            lambda: model.generate_content(prompt).text.strip()
-        )
+        response = await llm_service.generate_text(prompt)
         
         is_prohibited = response.upper() == "YES"
         print(f"Query prohibition check result: {response} (is_prohibited={is_prohibited})")
@@ -520,7 +503,6 @@ async def identify_mentioned_metrics(user_query: str) -> list:
         return []
         
     try:
-        model = genai.GenerativeModel(config.gemini_model)
         
         # Format the metrics lists for the prompt
         skills_str = ", ".join(SKILL_METRICS)
@@ -559,10 +541,8 @@ async def identify_mentioned_metrics(user_query: str) -> list:
         """
         
         print("[API CALL: GEMINI] identify_mentioned_metrics")
-        generation = await asyncio.to_thread(
-            lambda: model.generate_content(prompt)
-        )
-        response_text = generation.text.strip().lower()
+        response_text = await llm_service.generate_text(prompt)
+        response_text = response_text.strip().lower()
         
         if response_text == "none":
             print("No metrics identified in query")
@@ -639,7 +619,6 @@ async def is_wiki_only_query(user_query: str, wiki_content: str) -> bool:
         return False
         
     try:
-        model = genai.GenerativeModel(config.gemini_model)
             
         prompt = f"""
         Analyze if the provided OSRS wiki content has enough information to fully answer this query without needing additional web searches.
@@ -663,9 +642,7 @@ async def is_wiki_only_query(user_query: str, wiki_content: str) -> bool:
         
         # Use a shorter timeout for this decision
         print("[API CALL: GEMINI] is_wiki_only_query")
-        response = await asyncio.to_thread(
-            lambda: model.generate_content(prompt).text.strip()
-        )
+        response = await llm_service.generate_text(prompt)
         
         is_wiki_sufficient = response.upper() == "YES"
         print(f"Wiki content sufficiency analysis: {response} (is_wiki_sufficient={is_wiki_sufficient})")

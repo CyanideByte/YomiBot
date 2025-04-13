@@ -17,7 +17,7 @@ EXCLUDED_TERMS = [
     "playerauctions.com", "rpgstash.com", "eldorado.gg", "probemas.com",
     "chicksgold.com", "g2g.com", "food4rs.com", "partypeteshop.com",
     "rsorder.com", "ezrsgold.com", "rsgoldfast.com", "virtgold.com",
-    "luckycharmsgold.com", "osbuddy.com", "osbot.org", "runemate.com",
+    "luckycharmgold.com", "osbuddy.com", "osbot.org", "runemate.com",
     "osrsbots.com", "oldschoolscripts.com", "dreambot.org", "epicbot.com",
     "tribot.org", "robotzindisguise.com", "topg.org", "runelocus.com",
     "rsps-list.com", "scythe.org", "top100arena.com", "moparscape.org"
@@ -214,7 +214,7 @@ async def search_web(search_term):
     # Brave Search query and parameters
     params = {
         "q": f"osrs {search_term}",  # Prefix with osrs to focus results
-        "count": 5
+        "count": 10
     }
     
     # Brave Search API endpoint and headers

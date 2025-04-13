@@ -337,6 +337,8 @@ async def fetch_osrs_wiki(session, page_name):
                 error_msg = f"Error fetching wiki page (status {response.status})"
                 if response.status == 404:
                     error_msg = f"Page not found - This item/content may be unreleased or not exist in OSRS yet."
+                    print(error_msg)
+                    return None, original_page_name, page_name
                 elif response.status == 403:
                     error_msg = f"Access denied by Cloudflare anti-bot protection. Status code: 403"
                 else:
@@ -363,8 +365,11 @@ async def fetch_osrs_wiki(session, page_name):
     content = soup.find(id="mw-content-text")
     
     # Check for "Nothing interesting happens" element
+    # Enhanced "nothing happens" detection
     nothing_happens = soup.find('span', class_='mw-headline', string='Nothing interesting happens.')
-    if nothing_happens:
+    a_nothing = soup.find('a', id='Nothing_interesting_happens.')
+    img_weird_gloop = soup.find('img', src=lambda s: s and 'Weird_gloop_detail.png' in s)
+    if nothing_happens or a_nothing or img_weird_gloop:
         return None, original_page_name, page_name
     if content:
         output += "\n===Description===\n"

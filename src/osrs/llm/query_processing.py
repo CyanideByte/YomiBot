@@ -1,8 +1,8 @@
 import asyncio
 import time
 import re
-import google.generativeai as genai
 from config.config import config
+from osrs.llm.llm_service import llm_service
 from osrs.llm.identification import (
     identify_and_fetch_players,
     identify_and_fetch_wiki_pages,
@@ -103,7 +103,6 @@ async def process_unified_query(
         is_prohibited = await is_prohibited_query(user_query)
         if is_prohibited:
             # Generate security explanation using Gemini
-            model = genai.GenerativeModel(config.gemini_model)
             prompt = f"""
             The user asked: "{user_query}"
             
@@ -131,21 +130,11 @@ async def process_unified_query(
 
             Write a focused response ONLY about the specific topic they asked about. Keep it under 500 characters.
             """
-            
-            print("[API CALL: GEMINI] prohibited query explanation")
-            generation = await asyncio.to_thread(
-                lambda: model.generate_content(prompt)
-            )
-            explanation = None
-            if generation and generation.text:
-                explanation = generation.text.strip()
-            
-            # Fallback if generation fails
+
+            print("[API CALL: LLM SERVICE] prohibited query explanation")
+            explanation = await llm_service.generate_text(prompt)
             if not explanation:
                 explanation = "This topic poses serious security risks to your RuneScape account and computer. For your safety, please only use the official RuneScape client and avoid prohibited activities like RWT, botting, and private servers."
-            if generation and generation.text:
-                explanation = generation.text.strip()
-            
             if status_message:
                 await status_message.edit(content=explanation)
             return explanation
@@ -170,7 +159,6 @@ async def process_unified_query(
             metrics_context = format_metrics(metrics_data)
             
             # Use metrics data to generate response
-            model = genai.GenerativeModel(config.gemini_model)
             
             prompt = f"""
             {UNIFIED_SYSTEM_PROMPT}
@@ -190,14 +178,10 @@ async def process_unified_query(
                     await status_message.edit(content="Generating response...")
                     
                 print("[API CALL: GEMINI] metrics data generation")
-                generation = await asyncio.to_thread(
-                    lambda: model.generate_content(prompt)
-                )
-                if generation is None:
+                response = await llm_service.generate_text(prompt)
+                if response is None:
                     raise ValueError("Gemini model returned None")
-                if not generation.text:
-                    raise ValueError("Gemini model returned empty response")
-                response = generation.text.strip()
+                response = response.strip()
                 if not response:
                     raise ValueError("Gemini model returned whitespace-only response")
                 
@@ -219,12 +203,12 @@ async def process_unified_query(
                     source_url = f"https://wiseoldman.net/groups/3773/hiscores?metric={metric_name}"
                     response = clean_url_patterns(response, source_url)
                 
-                # Truncate if too long for Discord
-                response = response[:1900] + "\n\n(Response length exceeded)" if len(response) > 1900 else response
-                
-                # Update status message with final response
-                if status_message:
-                    await status_message.edit(content=response)
+                # Send long response in chunks if needed
+                if status_message and len(response) > 1900:
+                    await send_long_response(status_message, response)
+                else:
+                    if status_message:
+                        await status_message.edit(content=response)
                     
                 return response
                 
@@ -274,7 +258,6 @@ async def process_unified_query(
             print(f"Formatted data for {len(valid_players)} out of {len(player_data_list)} players")
         
         # Use text-based approach for response formatting
-        model = genai.GenerativeModel(config.gemini_model)
         
         # Construct the prompt based on available data
         if is_player_only:
@@ -325,14 +308,10 @@ async def process_unified_query(
                 await status_message.edit(content="Generating response...")
                 
             print("[API CALL: GEMINI] unified query generation")
-            generation = await asyncio.to_thread(
-                lambda: model.generate_content(prompt)
-            )
-            if generation is None:
+            response = await llm_service.generate_text(prompt)
+            if response is None:
                 raise ValueError("Gemini model returned None")
-            if not generation.text:
-                raise ValueError("Gemini model returned empty response")
-            response = generation.text.strip()
+            response = response.strip()
             if not response:
                 raise ValueError("Gemini model returned whitespace-only response")
                 
@@ -401,12 +380,12 @@ async def process_unified_query(
         total_time = time.time() - start_time
         print(f"Total processing time: {total_time:.2f} seconds")
         
-        # Truncate if too long for Discord
-        response = response[:1900] + "\n\n(Response length exceeded)" if len(response) > 1900 else response
-        
-        # Update status message with final response
-        if status_message:
-            await status_message.edit(content=response)
+        # Send long response in chunks if needed
+        if status_message and len(response) > 1900:
+            await send_long_response(status_message, response)
+        else:
+            if status_message:
+                await status_message.edit(content=response)
             
         return response
         
@@ -425,7 +404,6 @@ async def roast_player(player_data):
         return None
         
     try:
-        model = genai.GenerativeModel(config.gemini_model)
         
         # Format player data for context
         try:
@@ -460,14 +438,10 @@ async def roast_player(player_data):
         
         try:
             print("[API CALL: GEMINI] player roast generation")
-            generation = await asyncio.to_thread(
-                lambda: model.generate_content(prompt)
-            )
-            if generation is None:
+            response = await llm_service.generate_text(prompt)
+            if response is None:
                 return None
-            if not generation.text:
-                return None
-            response = generation.text.strip()
+            response = response.strip()
             if not response:
                 return None
                 
@@ -476,9 +450,24 @@ async def roast_player(player_data):
             return formatted_response
             
         except Exception as e:
-            print(f"Error in model generation: {e}")
+            print(f"Error in model response: {e}")
             return None
             
     except Exception as e:
         print(f"Error generating player roast: {e}")
         return None
+# Helper to send long responses in Discord-friendly chunks
+async def send_long_response(status_message, response, chunk_size=1900):
+    chunks = [response[i:i+chunk_size] for i in range(0, len(response), chunk_size)]
+    for idx, chunk in enumerate(chunks):
+        if idx == 0:
+            # First chunk edits the status message
+            if len(chunks) > 1:
+                chunk += "\n\n(Continued in next message)"
+            await status_message.edit(content=chunk)
+        else:
+            # Subsequent chunks are sent as new messages in the same channel
+            # Assumes status_message has a .channel attribute
+            if len(chunks) > idx + 1:
+                chunk += "\n\n(Continued in next message)"
+            await status_message.channel.send(chunk)
