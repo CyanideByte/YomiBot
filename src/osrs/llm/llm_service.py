@@ -24,7 +24,7 @@ class LLMService:
     def __init__(self):
         pass
 
-    async def generate_text_litellm(self,
+    async def generate_text(self,
                                     prompt: str,
                                     model: str = None,
                                     max_tokens: int = None) -> str:
@@ -32,7 +32,7 @@ class LLMService:
         Generate text response from an LLM using LiteLLM
         """
         litellm_model = model or config.default_model
-
+        
         try:
             response = await asyncio.to_thread(
                 lambda: litellm.completion(
@@ -46,38 +46,6 @@ class LLMService:
             return ""
         except Exception as e:
             print(f"Error in generate_text_litellm: {e}")
-            raise
-
-    async def generate_text(self,
-                           prompt: str,
-                           model: str = None,
-                           max_tokens: int = None) -> str:
-        """
-        Generate text response from an LLM using OpenAI client (OpenRouter endpoint)
-        """
-        from openai import OpenAI
-
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=config.openrouter_api_key,
-        )
-
-        openai_model = model or config.default_model
-        messages = [{"role": "user", "content": prompt}]
-
-        try:
-            response = await asyncio.to_thread(
-                lambda: client.chat.completions.create(
-                    model=openai_model,
-                    messages=messages,
-                    max_tokens=max_tokens
-                )
-            )
-            if response and hasattr(response, "choices") and len(response.choices) > 0:
-                return response.choices[0].message.content
-            return ""
-        except Exception as e:
-            print(f"Error in generate_text (openai): {e}")
             raise
 
     async def generate_with_images(self,

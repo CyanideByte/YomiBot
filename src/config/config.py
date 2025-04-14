@@ -50,7 +50,7 @@ class Config:
         self.brave_api_key = None
         self.wise_old_man_api_key = None
         self.wise_old_man_user_agent = None
-        self.default_model = "openrouter/optimus-alpha"
+        self.default_model = "gemini/gemini-2.0-flash"
         self.user_agent = "YomiBot"
         ensure_cache_directories()  # Ensure cache directories exist on startup
         self.load_config()

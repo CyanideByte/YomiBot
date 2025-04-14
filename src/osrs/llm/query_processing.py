@@ -77,7 +77,8 @@ async def process_unified_query(
     user_id: str = None,
     image_urls: list[str] = None,
     requester_name: str = None,
-    status_message = None
+    status_message = None,
+    think: bool = False
 ) -> str:
     """
     Unified function to process queries using both player data and wiki/web information
@@ -177,8 +178,8 @@ async def process_unified_query(
                 if status_message:
                     await status_message.edit(content="Generating response...")
                     
-                print("[API CALL: GEMINI] metrics data generation")
-                response = await llm_service.generate_text(prompt)
+                print("[API CALL: LITELLM] metrics data generation")
+                response = await llm_service.generate_text(prompt, "openrouter/optimus-alpha")
                 if response is None:
                     raise ValueError("Gemini model returned None")
                 response = response.strip()
@@ -304,13 +305,15 @@ async def process_unified_query(
         # Generate the response
         response_start_time = time.time()
         try:
+            print("[API CALL: LITELLM] unified query generation")
             if status_message:
                 await status_message.edit(content="Generating response...")
-                
-            print("[API CALL: GEMINI] unified query generation")
             response = await llm_service.generate_text(prompt)
             if response is None:
                 raise ValueError("Gemini model returned None")
+            response = response.strip()
+            if not response:
+                raise ValueError("Gemini model returned whitespace-only response")
             response = response.strip()
             if not response:
                 raise ValueError("Gemini model returned whitespace-only response")
@@ -437,7 +440,7 @@ async def roast_player(player_data):
         """
         
         try:
-            print("[API CALL: GEMINI] player roast generation")
+            print("[API CALL: LITELLM] player roast generation")
             response = await llm_service.generate_text(prompt)
             if response is None:
                 return None
@@ -458,16 +461,33 @@ async def roast_player(player_data):
         return None
 # Helper to send long responses in Discord-friendly chunks
 async def send_long_response(status_message, response, chunk_size=1900):
-    chunks = [response[i:i+chunk_size] for i in range(0, len(response), chunk_size)]
-    for idx, chunk in enumerate(chunks):
+    """
+    Sends a long response in Discord-friendly chunks, splitting at newlines if possible.
+    The first chunk edits the status message, subsequent chunks are sent as new messages.
+    """
+    idx = 0
+    length = len(response)
+    pos = 0
+    while pos < length:
+        # Find the next chunk boundary
+        if (length - pos) <= chunk_size:
+            chunk = response[pos:]
+            pos = length
+        else:
+            # Look for the last newline before chunk_size
+            newline_pos = response.rfind('\n', pos, pos + chunk_size)
+            if newline_pos == -1 or newline_pos == pos:
+                # No newline found, or at the start, just split at chunk_size
+                split_pos = pos + chunk_size
+            else:
+                split_pos = newline_pos + 1  # include the newline
+            chunk = response[pos:split_pos]
+            pos = split_pos
+        # Add continuation marker if more content remains
+        if pos < length:
+            chunk = chunk.rstrip('\n') + "\n\n(Continued in next message)"
         if idx == 0:
-            # First chunk edits the status message
-            if len(chunks) > 1:
-                chunk += "\n\n(Continued in next message)"
             await status_message.edit(content=chunk)
         else:
-            # Subsequent chunks are sent as new messages in the same channel
-            # Assumes status_message has a .channel attribute
-            if len(chunks) > idx + 1:
-                chunk += "\n\n(Continued in next message)"
             await status_message.channel.send(chunk)
+        idx += 1

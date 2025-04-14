@@ -13,14 +13,15 @@ from config.config import config, PROJECT_ROOT, SEARCH_CACHE, PAGES_CACHE
 # URLs to exclude from search results
 EXCLUDED_TERMS = [
     "fandom.com", "reddit.com", "quora.com", "youtube.com", "twitch.tv",
-    "github.com", "x.com", "twitter.com", "runehq.com",
+    "facebook.com", "github.com", "github.io", "x.com", "twitter.com",
+    "runehq.com", "zybez.net", "melvoridle.com", "osrsbestinslot.com",
     "playerauctions.com", "rpgstash.com", "eldorado.gg", "probemas.com",
     "chicksgold.com", "g2g.com", "food4rs.com", "partypeteshop.com",
     "rsorder.com", "ezrsgold.com", "rsgoldfast.com", "virtgold.com",
     "luckycharmgold.com", "osbuddy.com", "osbot.org", "runemate.com",
     "osrsbots.com", "oldschoolscripts.com", "dreambot.org", "epicbot.com",
     "tribot.org", "robotzindisguise.com", "topg.org", "runelocus.com",
-    "rsps-list.com", "scythe.org", "top100arena.com", "moparscape.org"
+    "rsps-list.com", "sythe.org", "top100arena.com", "moparscape.org"
 ]
 
 # Allowed RuneScape wiki domains
@@ -214,7 +215,7 @@ async def search_web(search_term):
     # Brave Search query and parameters
     params = {
         "q": f"osrs {search_term}",  # Prefix with osrs to focus results
-        "count": 10
+        "count": 5
     }
     
     # Brave Search API endpoint and headers
@@ -249,7 +250,7 @@ async def search_web(search_term):
                         if link: print(f"Skipping excluded URL: {link}")
                         continue
                         
-                    print(f"\nQueueing content fetch for: {title}\n{link}")
+                    # print(f"\nQueueing content fetch for: {title}\n{link}")
                     # Store original result metadata and create task
                     original_results.append({"title": title, "url": link})
                     tasks.append(extract_text_from_url(session, link))

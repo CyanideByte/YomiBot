@@ -56,6 +56,39 @@ def register_commands(bot):
             # If there was an error, edit the processing message with the error
             await processing_msg.edit(content=f"Error processing your request: {str(e)}")
             
+    # @bot.command(name='think', help='Like askyomi, but uses followup wiki thinking.')
+    # async def think(ctx, *, user_query: str = ""):
+    #     user_id = str(ctx.author.id)
+    #     image_urls = []
+    #     if ctx.message.attachments:
+    #         for attachment in ctx.message.attachments:
+    #             if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+    #                 image_urls.append(attachment.url)
+    #     if not user_query and not image_urls:
+    #         await ctx.send("Please provide a question or attach an image to analyze.")
+    #         return
+    #     if image_urls:
+    #         processing_msg = await ctx.send(
+    #             "Processing your image(s) and request, this may take a moment...",
+    #             reference=ctx.message
+    #         )
+    #     else:
+    #         processing_msg = await ctx.send(
+    #             "Processing your request, this may take a moment...",
+    #             reference=ctx.message
+    #         )
+    #     try:
+    #         response = await process_unified_query(
+    #             user_query or "What is this OSRS item?",
+    #             user_id=user_id,
+    #             image_urls=image_urls,
+    #             requester_name=ctx.author.display_name,
+    #             status_message=processing_msg,
+    #             think=True
+    #         )
+    #     except Exception as e:
+    #         await processing_msg.edit(content=f"Error processing your request: {str(e)}")
+
     @bot.command(name='roast', help='Roasts a player based on their OSRS stats.')
     async def roast(ctx, *, user_query=None):
         """Command to roast a player based on their OSRS stats."""
@@ -121,7 +154,7 @@ def register_commands(bot):
             print(f"Error in roast command: {e}")
             await processing_msg.edit(content=f"Something went wrong while trying to roast this noob. They're probably not worth roasting anyway.")
 
-    @bot.command(name='imagine', help='Generates an image based on your prompt')
+    @bot.command(name='image', help='Generates an image based on your prompt', aliases=['imagine'])
     async def generate_image(ctx, *, prompt: str = ""):
         if not prompt:
             await ctx.send("Please provide a prompt for the image. Example: !image a majestic dragon")

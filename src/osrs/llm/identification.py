@@ -43,9 +43,6 @@ ALL_METRICS = SKILL_METRICS + ACTIVITY_METRICS + BOSS_METRICS
 
 async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
     """Use Gemini to identify relevant wiki pages for the query"""
-    if not config.gemini_api_key:
-        print("Gemini API key not set")
-        return []
     
     try:
         # Stage 1: Process images if present
@@ -85,7 +82,7 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
 
         Query: {user_query}
         
-        Respond ONLY with page names separated by commas. No additional text. MAXIMUM 5 most important pages
+        Respond ONLY with page names separated by commas. No additional text. MAXIMUM 10 most important pages
         Example: "Dragon_scimitar,Abyssal_whip"
         If no pages can be determined, respond with: "[NO_PAGES_FOUND]"
         """
@@ -98,8 +95,15 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
             print("Identified wiki pages: []")
             return []
             
-        # Normalize page names to use underscores
-        page_names = [name.strip().replace(' ', '_') for name in response_text.split(',') if name.strip()][:5]
+        # Normalize page names to use underscores and filter out sentinel values
+        page_names = [
+            name.strip().replace(' ', '_')
+            for name in response_text.split(',')
+            if name.strip() and name.strip() not in ("[NO_PAGES_FOUND]", "[NO_PAGES_NEEDED]")
+        ][:5]
+        if not page_names:
+            print("Identified wiki pages: []")
+            return []
         print(f"Identified wiki pages: {page_names}")
         return page_names
         
@@ -107,6 +111,69 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         print(f"Error identifying wiki pages: {e}")
         return []
 
+
+async def identify_followup_wiki_pages(
+    user_query: str,
+    full_response: str,
+    wiki_pages_already_identified: list[str]
+) -> list[str]:
+    """
+    Use the LLM to suggest additional OSRS wiki pages that could fill knowledge gaps or verify uncertain information,
+    based on the user query, the previously generated full response, and a list of already-identified wiki pages.
+    Returns a list of new page names (not already in wiki_pages_already_identified).
+    """
+    try:
+        already_identified_str = ", ".join(wiki_pages_already_identified) if wiki_pages_already_identified else "None"
+        prompt = f"""
+        You are an assistant that helps determine if any ADDITIONAL Old School RuneScape (OSRS) wiki pages should be fetched to fill in gaps in knowledge or to verify information that may be uncertain or incomplete.
+
+        User Query: {user_query}
+
+        Previous Response: {full_response}
+
+        Wiki pages already identified: {already_identified_str}
+
+        Your task:
+        - Carefully review the user query and the previous response.
+        - ONLY suggest additional OSRS wiki pages that would help fill knowledge gaps or verify uncertain information.
+        - Do NOT repeat pages already identified.
+        - Respond ONLY with a comma-separated list of valid OSRS wiki page names.
+        - Do NOT include any explanations, comments, or text that is not a valid page name.
+        - If no pages are needed, respond with [NO_PAGES_NEEDED].
+        - Use exact page names with underscores (e.g., "Dragon_scimitar").
+        - MAXIMUM 5 additional pages.
+
+        Example response: Dragon_scimitar,Ancient_staff
+        If no additional pages are needed: [NO_PAGES_NEEDED]
+        """
+
+        print("[API CALL: LLM SERVICE] identify_followup_wiki_pages")
+        response_text = await llm_service.generate_text(prompt)
+        response_text = response_text.strip()
+
+        if response_text == "[NO_PAGES_NEEDED]":
+            print("No additional wiki pages needed.")
+            return []
+
+        # Normalize and strictly filter for valid OSRS wiki page names
+        import re
+        valid_page_pattern = re.compile(r"^[A-Za-z0-9_()]{1,40}$")
+        new_pages = [
+            name.strip().replace(' ', '_')
+            for name in response_text.split(',')
+            if name.strip()
+               and name.strip() not in ("[NO_PAGES_FOUND]", "[NO_PAGES_NEEDED]")
+               and name.strip().replace(' ', '_') not in {p.replace(' ', '_') for p in wiki_pages_already_identified}
+               and valid_page_pattern.match(name.strip().replace(' ', '_'))
+        ][:5]
+        if not new_pages:
+            print("No additional wiki pages identified.")
+            return []
+        print(f"Additional wiki pages identified: {new_pages}")
+        return new_pages
+    except Exception as e:
+        print(f"Error identifying followup wiki pages: {e}")
+        return []
 async def identify_mentioned_players(user_query: str, guild_members: list, requester_name: str = None) -> tuple[list, bool]:
     """
     Use Gemini to identify mentioned players in the query
@@ -114,9 +181,6 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
     Returns:
         tuple: (list of mentioned players, bool indicating if query refers to all members)
     """
-    if not config.gemini_api_key:
-        print("Gemini API key not set")
-        return [], False
     
     try:
         
@@ -165,7 +229,7 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
         User query: {user_query}
         """
         
-        print("[API CALL: GEMINI] identify_mentioned_players")
+        print("[API CALL: LITELLM] identify_mentioned_players")
         response_text = await llm_service.generate_text(prompt)
         response_text = response_text.strip()
         
@@ -188,9 +252,6 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
 
 async def generate_search_term(query):
     """Use Gemini to generate a search term based on the user query or determine if no search is needed"""
-    if not config.gemini_api_key:
-        print("Gemini API key not set")
-        return query
     
     try:
         
@@ -211,7 +272,7 @@ async def generate_search_term(query):
         Respond ONLY with either [NO_SEARCH_NEEDED] or the search term, no additional text or explanation.
         """
         
-        print("[API CALL: GEMINI] generate_search_term")
+        print("[API CALL: LITELLM] generate_search_term")
         response_text = await llm_service.generate_text(prompt)
         search_term = response_text.strip()
         print(f"Generated search term: {search_term}")
@@ -272,7 +333,7 @@ async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
         """
         
         # Use a shorter timeout for this decision to avoid adding too much latency
-        print("[API CALL: GEMINI] is_player_only_query")
+        print("[API CALL: LITELLM] is_player_only_query")
         response = await llm_service.generate_text(prompt)
         
         is_player_only = response.upper() == "YES"
@@ -295,9 +356,6 @@ async def is_prohibited_query(user_query: str) -> bool:
         Boolean indicating if the query is about prohibited topics
         
     """
-    if not config.gemini_api_key:
-        print("Gemini API key not set")
-        return False
         
     try:
         
@@ -330,7 +388,7 @@ async def is_prohibited_query(user_query: str) -> bool:
         """
         
         # Use a shorter timeout for this decision
-        print("[API CALL: GEMINI] is_prohibited_query")
+        print("[API CALL: LITELLM] is_prohibited_query")
         response = await llm_service.generate_text(prompt)
         
         is_prohibited = response.upper() == "YES"
@@ -488,6 +546,44 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
         print(f"Error identifying and fetching wiki pages: {e}")
         return "", [], [], []
 
+async def identify_and_fetch_followup_wiki_pages(
+    user_query: str,
+    full_response: str,
+    wiki_pages_already_identified: list[str]
+):
+    """
+    Identify and fetch additional wiki pages needed to fill knowledge gaps or verify information,
+    based on the user query, the previous response, and already-identified wiki pages.
+    Returns (wiki_content, new_page_names, wiki_sources).
+    """
+    try:
+        from osrs.wiki import fetch_osrs_wiki_pages
+        # Step 1: Identify additional wiki pages
+        new_page_names = await identify_followup_wiki_pages(
+            user_query, full_response, wiki_pages_already_identified
+        )
+        if not new_page_names:
+            print("No additional wiki pages to fetch.")
+            return "", [], []
+        # Step 2: Fetch content for new pages
+        print(f"Fetching followup wiki pages: {', '.join(new_page_names)}")
+        wiki_content, redirects, rejected_pages = await fetch_osrs_wiki_pages(new_page_names)
+        wiki_sources = []
+        for page in new_page_names:
+            normalized_page = page.replace(' ', '_')
+            redirected_page = redirects.get(normalized_page, normalized_page)
+            final_page_name = redirected_page.replace(' ', '_')
+            if final_page_name not in rejected_pages:
+                wiki_sources.append({
+                    'type': 'wiki',
+                    'name': final_page_name,
+                    'url': f"https://oldschool.runescape.wiki/w/{final_page_name}"
+                })
+        return wiki_content, new_page_names, wiki_sources
+    except Exception as e:
+        print(f"Error in identify_and_fetch_followup_wiki_pages: {e}")
+        return "", [], []
+
 async def identify_mentioned_metrics(user_query: str) -> list:
     """
     Use Gemini to identify mentioned metrics (skills, bosses, activities) in the query
@@ -498,9 +594,6 @@ async def identify_mentioned_metrics(user_query: str) -> list:
     Returns:
         list: List of identified metrics that match our predefined list
     """
-    if not config.gemini_api_key:
-        print("Gemini API key not set")
-        return []
         
     try:
         
@@ -540,7 +633,7 @@ async def identify_mentioned_metrics(user_query: str) -> list:
         Respond ONLY with a comma-separated list of identified metrics, or "none" if no metrics are mentioned.
         """
         
-        print("[API CALL: GEMINI] identify_mentioned_metrics")
+        print("[API CALL: LITELLM] identify_mentioned_metrics")
         response_text = await llm_service.generate_text(prompt)
         response_text = response_text.strip().lower()
         
@@ -641,7 +734,7 @@ async def is_wiki_only_query(user_query: str, wiki_content: str) -> bool:
         """
         
         # Use a shorter timeout for this decision
-        print("[API CALL: GEMINI] is_wiki_only_query")
+        print("[API CALL: LITELLM] is_wiki_only_query")
         response = await llm_service.generate_text(prompt)
         
         is_wiki_sufficient = response.upper() == "YES"
