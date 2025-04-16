@@ -179,7 +179,7 @@ async def process_unified_query(
                     await status_message.edit(content="Generating response...")
                     
                 print("[API CALL: LITELLM] metrics data generation")
-                response = await llm_service.generate_text(prompt, "openrouter/optimus-alpha")
+                response = await llm_service.generate_text(prompt)
                 if response is None:
                     raise ValueError("Gemini model returned None")
                 response = response.strip()
@@ -311,9 +311,6 @@ async def process_unified_query(
             response = await llm_service.generate_text(prompt)
             if response is None:
                 raise ValueError("Gemini model returned None")
-            response = response.strip()
-            if not response:
-                raise ValueError("Gemini model returned whitespace-only response")
             response = response.strip()
             if not response:
                 raise ValueError("Gemini model returned whitespace-only response")
