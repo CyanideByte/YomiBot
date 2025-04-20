@@ -391,7 +391,7 @@ async def is_prohibited_query(user_query: str) -> bool:
         print("[API CALL: LITELLM] is_prohibited_query")
         response = await llm_service.generate_text(prompt)
         
-        is_prohibited = response.upper() == "YES"
+        is_prohibited = response.strip().upper() == "YES"
         print(f"Query prohibition check result: {response} (is_prohibited={is_prohibited})")
         return is_prohibited
         
