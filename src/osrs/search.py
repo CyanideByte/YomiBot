@@ -12,7 +12,7 @@ from config.config import config, PROJECT_ROOT, SEARCH_CACHE, PAGES_CACHE
 
 # URLs to exclude from search results
 EXCLUDED_TERMS = [
-    "fandom.com", "reddit.com", "quora.com", "youtube.com", "twitch.tv",
+    "fandom.com", "reddit.com", "quora.com", "youtube.com", "twitch.tv", "support.runescape.com",
     "facebook.com", "github.com", "github.io", "x.com", "twitter.com",
     "runehq.com", "zybez.net", "melvoridle.com", "osrsbestinslot.com",
     "playerauctions.com", "rpgstash.com", "eldorado.gg", "probemas.com",
