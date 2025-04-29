@@ -118,7 +118,7 @@ def register_commands(bot):
                 return
                 
             # Generate the roast
-            roast_response = await roast_player(player_data)
+            roast_response = await roast_player(player_data, status_message=processing_msg)
             if not roast_response:
                 await processing_msg.edit(content=f"Their stats are so bad I'm actually speechless. I can't even roast '{target_player}' - they've roasted themselves just by existing.")
                 return

@@ -427,26 +427,42 @@ async def is_prohibited_query(user_query: str) -> bool:
         return False
 
 
-async def identify_and_fetch_players(user_query: str, requester_name=None):
+async def identify_and_fetch_players(user_query: str, requester_name=None, status_message=None):
     """
     Identify mentioned players in the query and fetch their data
     
+    Args:
+        user_query: The user's query text
+        requester_name: Optional name of the requester
+        status_message: Optional status message to update
+        
     Returns:
         tuple: (player_data_list, player_sources, is_all_members)
     """
     player_data_list = []
     player_sources = []
     
+    # Get guild members first since we need both names and full data
+    guild_members = get_guild_members_data()
+    # Extract names from guild members
+    guild_member_names = [member['player']['displayName'] for member in guild_members]
+    
     try:
-        # Get guild members first since we need both names and full data
-        guild_members = get_guild_members_data()
-        # Extract names from guild members
-        guild_member_names = [member['player']['displayName'] for member in guild_members]
         identified_players, is_all_members = await identify_mentioned_players(user_query, guild_member_names, requester_name)
+    except LLMServiceError as e:
+        # Update status message if available
+        if status_message:
+            if hasattr(e, 'retry_after') and e.retry_after:
+                await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+            else:
+                await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+        # Re-raise to be handled by the command - this will exit the function immediately
+        raise
 
-        if is_all_members:
-            return [], [], True
+    if is_all_members:
+        return [], [], True
 
+    try:
         if identified_players:
             # Create a single session for all requests
             async with aiohttp.ClientSession() as session:
@@ -485,14 +501,54 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
     wiki_sources = []
     web_sources = []
     
+    # Import here to avoid circular imports
+    from osrs.search import get_web_search_context, format_search_results
+    from osrs.wiki import fetch_osrs_wiki_pages
+    
+    # First identify and fetch wiki content
     try:
-        # Import here to avoid circular imports
-        from osrs.search import get_web_search_context, format_search_results
-        from osrs.wiki import fetch_osrs_wiki_pages
+        page_names = await identify_wiki_pages(user_query, image_urls)
+    except LLMServiceError as e:
+        # Update status message if available
+        if status_message:
+            if hasattr(e, 'retry_after') and e.retry_after:
+                await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+            else:
+                await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+        # Re-raise to be handled by the command - this will exit the function immediately
+        raise
+    
+    # Process page names if we have any
+    if page_names:
+        # Normalize page names
+        normalized_wiki_page_names = [name.replace(' ', '_') for name in page_names]
+        unique_normalized_names = sorted(list(set(normalized_wiki_page_names)))
         
-        # First identify and fetch wiki content
+        print(f"Fetching wiki pages: {', '.join(unique_normalized_names)}")
+        wiki_content, redirects, rejected_pages = await fetch_osrs_wiki_pages(unique_normalized_names)
+        
+        # Process redirects and build wiki sources
+        for page in unique_normalized_names:
+            normalized_page_lookup = page.replace(' ', '_')
+            redirected_page = redirects.get(normalized_page_lookup, normalized_page_lookup)
+            final_page_name = redirected_page.replace(' ', '_')
+            
+            if final_page_name not in rejected_pages:
+                updated_page_names.append(final_page_name)
+                wiki_url = f"https://oldschool.runescape.wiki/w/{final_page_name}"
+                wiki_sources.append({
+                    'type': 'wiki',
+                    'name': final_page_name,
+                    'url': wiki_url
+                })
+        
+    # Check if wiki content is sufficient before doing any web searches
+    if wiki_content:
         try:
-            page_names = await identify_wiki_pages(user_query, image_urls)
+            is_wiki_sufficient = await is_wiki_only_query(user_query, wiki_content)
+            if is_wiki_sufficient:
+                print("Wiki content deemed sufficient, skipping web search")
+                return wiki_content, updated_page_names, wiki_sources, []
         except LLMServiceError as e:
             # Update status message if available
             if status_message:
@@ -500,49 +556,11 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
                     await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
                 else:
                     await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
-            # Re-raise to be handled by the command
+            # Re-raise to be handled by the command - this will exit the function immediately
             raise
-        if page_names:
-            # Normalize page names
-            normalized_wiki_page_names = [name.replace(' ', '_') for name in page_names]
-            unique_normalized_names = sorted(list(set(normalized_wiki_page_names)))
-            
-            print(f"Fetching wiki pages: {', '.join(unique_normalized_names)}")
-            wiki_content, redirects, rejected_pages = await fetch_osrs_wiki_pages(unique_normalized_names)
-            
-            # Process redirects and build wiki sources
-            for page in unique_normalized_names:
-                normalized_page_lookup = page.replace(' ', '_')
-                redirected_page = redirects.get(normalized_page_lookup, normalized_page_lookup)
-                final_page_name = redirected_page.replace(' ', '_')
-                
-                if final_page_name not in rejected_pages:
-                    updated_page_names.append(final_page_name)
-                    wiki_url = f"https://oldschool.runescape.wiki/w/{final_page_name}"
-                    wiki_sources.append({
-                        'type': 'wiki',
-                        'name': final_page_name,
-                        'url': wiki_url
-                    })
         
-        # Check if wiki content is sufficient before doing any web searches
-        if wiki_content:
-            try:
-                is_wiki_sufficient = await is_wiki_only_query(user_query, wiki_content)
-                if is_wiki_sufficient:
-                    print("Wiki content deemed sufficient, skipping web search")
-                    return wiki_content, updated_page_names, wiki_sources, []
-            except LLMServiceError as e:
-                # Update status message if available
-                if status_message:
-                    if hasattr(e, 'retry_after') and e.retry_after:
-                        await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
-                    else:
-                        await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
-                # Re-raise to be handled by the command
-                raise
-        
-        # If we need web content, do the web search
+    # If we need web content, do the web search
+    try:
         if status_message:
             await status_message.edit(content="Searching the web...")
             
@@ -587,7 +605,15 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
                 wiki_content = web_content
             
         return wiki_content, updated_page_names, wiki_sources, web_sources
-        
+    except LLMServiceError as e:
+        # Update status message if available
+        if status_message:
+            if hasattr(e, 'retry_after') and e.retry_after:
+                await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+            else:
+                await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+        # Re-raise to be handled by the command
+        raise
     except Exception as e:
         print(f"Error identifying and fetching wiki pages: {e}")
         return "", [], [], []
@@ -709,12 +735,13 @@ async def identify_mentioned_metrics(user_query: str) -> list:
         print(f"Error identifying mentioned metrics: {e}")
         return []
 
-async def identify_and_fetch_metrics(user_query: str):
+async def identify_and_fetch_metrics(user_query: str, status_message=None):
     """
     Identify mentioned metrics in the query and fetch their data
     
     Args:
         user_query: The user's query text
+        status_message: Optional status message to update
         
     Returns:
         dict: Dictionary mapping metric names to their scoreboard data
@@ -723,7 +750,17 @@ async def identify_and_fetch_metrics(user_query: str):
     
     try:
         # Identify metrics mentioned in the query
-        identified_metrics = await identify_mentioned_metrics(user_query)
+        try:
+            identified_metrics = await identify_mentioned_metrics(user_query)
+        except LLMServiceError as e:
+            # Update status message if available
+            if status_message:
+                if hasattr(e, 'retry_after') and e.retry_after:
+                    await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                else:
+                    await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+            # Re-raise to be handled by the command - this will exit the function immediately
+            raise
         
         if not identified_metrics:
             print("No metrics identified in query")
@@ -743,7 +780,8 @@ async def identify_and_fetch_metrics(user_query: str):
         return metrics_data
         
     except Exception as e:
-        print(f"Error identifying and fetching metrics: {e}")
+        if not isinstance(e, LLMServiceError):  # We already handle LLMServiceError above
+            print(f"Error identifying and fetching metrics: {e}")
         return {}
 
 async def is_wiki_only_query(user_query: str, wiki_content: str) -> bool:
