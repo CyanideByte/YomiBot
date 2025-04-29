@@ -9,6 +9,7 @@ from osrs.wiseoldman import (
     get_guild_members_data, get_player_cache_path
 )
 from osrs.llm.identification import identify_mentioned_players
+from osrs.llm.llm_service import LLMServiceError
 
 def register_commands(bot):
     @bot.command(name='askyomi', aliases=['yomi', 'ask'])
@@ -52,8 +53,15 @@ def register_commands(bot):
             )
             
             # Final response will be handled by process_unified_query
+        except LLMServiceError as e:
+            # If there was an LLM service error, inform the user that the service is unavailable
+            if hasattr(e, 'retry_after') and e.retry_after:
+                await processing_msg.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+            else:
+                await processing_msg.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+            return
         except Exception as e:
-            # If there was an error, edit the processing message with the error
+            # If there was any other error, edit the processing message with the error
             await processing_msg.edit(content=f"Error processing your request: {str(e)}")
 
     @bot.command(name='roast', help='Roasts a player based on their OSRS stats.')
@@ -117,6 +125,13 @@ def register_commands(bot):
                 
             await processing_msg.edit(content=roast_response)
             
+        except LLMServiceError as e:
+            # If there was an LLM service error, inform the user that the service is unavailable
+            if hasattr(e, 'retry_after') and e.retry_after:
+                await processing_msg.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+            else:
+                await processing_msg.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+            return
         except Exception as e:
             print(f"Error in roast command: {e}")
             await processing_msg.edit(content=f"Something went wrong while trying to roast this noob. They're probably not worth roasting anyway.")

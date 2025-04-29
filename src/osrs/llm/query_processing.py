@@ -2,7 +2,7 @@ import asyncio
 import time
 import re
 from config.config import config
-from osrs.llm.llm_service import llm_service
+from osrs.llm.llm_service import llm_service, LLMServiceError
 from osrs.llm.identification import (
     identify_and_fetch_players,
     identify_and_fetch_wiki_pages,
@@ -133,12 +133,22 @@ async def process_unified_query(
             """
 
             print("[API CALL: LLM SERVICE] prohibited query explanation")
-            explanation = await llm_service.generate_text(prompt)
-            if not explanation:
-                explanation = "This topic poses serious security risks to your RuneScape account and computer. For your safety, please only use the official RuneScape client and avoid prohibited activities like RWT, botting, and private servers."
-            if status_message:
-                await status_message.edit(content=explanation)
-            return explanation
+            try:
+                explanation = await llm_service.generate_text(prompt)
+                if not explanation:
+                    explanation = "This topic poses serious security risks to your RuneScape account and computer. For your safety, please only use the official RuneScape client and avoid prohibited activities like RWT, botting, and private servers."
+                if status_message:
+                    await status_message.edit(content=explanation)
+                return explanation
+            except LLMServiceError as e:
+                # Update status message before re-raising
+                if status_message:
+                    if hasattr(e, 'retry_after') and e.retry_after:
+                        await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                    else:
+                        await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+                # Re-raise to be handled by the command
+                raise
 
         # If not prohibited, proceed with player data
         if status_message:
@@ -179,12 +189,22 @@ async def process_unified_query(
                     await status_message.edit(content="Generating response...")
                     
                 print("[API CALL: LITELLM] metrics data generation")
-                response = await llm_service.generate_text(prompt)
-                if response is None:
-                    raise ValueError("Gemini model returned None")
-                response = response.strip()
-                if not response:
-                    raise ValueError("Gemini model returned whitespace-only response")
+                try:
+                    response = await llm_service.generate_text(prompt)
+                    if response is None:
+                        raise ValueError("Gemini model returned None")
+                    response = response.strip()
+                    if not response:
+                        raise ValueError("Gemini model returned whitespace-only response")
+                except LLMServiceError as e:
+                    # Update status message before re-raising
+                    if status_message:
+                        if hasattr(e, 'retry_after') and e.retry_after:
+                            await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                        else:
+                            await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+                    # Re-raise to be handled by the command
+                    raise
                 
                 # Build sources for each metric
                 sources_section = "\n\nSources:"
@@ -308,12 +328,22 @@ async def process_unified_query(
             print("[API CALL: LITELLM] unified query generation")
             if status_message:
                 await status_message.edit(content="Generating response...")
-            response = await llm_service.generate_text(prompt)
-            if response is None:
-                raise ValueError("Gemini model returned None")
-            response = response.strip()
-            if not response:
-                raise ValueError("Gemini model returned whitespace-only response")
+            try:
+                response = await llm_service.generate_text(prompt)
+                if response is None:
+                    raise ValueError("Gemini model returned None")
+                response = response.strip()
+                if not response:
+                    raise ValueError("Gemini model returned whitespace-only response")
+            except LLMServiceError as e:
+                # Update status message before re-raising
+                if status_message:
+                    if hasattr(e, 'retry_after') and e.retry_after:
+                        await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                    else:
+                        await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+                # Re-raise to be handled by the command
+                raise
                 
             # For player-only queries, ensure response has "Sources:" section
             if is_player_only and "Sources:" not in response:
@@ -389,8 +419,20 @@ async def process_unified_query(
             
         return response
         
+    except LLMServiceError as e:
+        # This is specifically for LLM service errors
+        print(f"LLM service error in process_unified_query: {e}")
+        if status_message:
+            if hasattr(e, 'retry_after') and e.retry_after:
+                await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+            else:
+                await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+        # Re-raise to be handled by the command handler
+        raise
     except Exception as e:
         print(f"Error processing unified query: {e}")
+        if status_message:
+            await status_message.edit(content=f"Error processing your query: {str(e)}")
         return f"Error processing your query: {str(e)}"
 
 async def roast_player(player_data):
@@ -438,12 +480,16 @@ async def roast_player(player_data):
         
         try:
             print("[API CALL: LITELLM] player roast generation")
-            response = await llm_service.generate_text(prompt)
-            if response is None:
-                return None
-            response = response.strip()
-            if not response:
-                return None
+            try:
+                response = await llm_service.generate_text(prompt)
+                if response is None:
+                    return None
+                response = response.strip()
+                if not response:
+                    return None
+            except LLMServiceError as e:
+                # Re-raise to be handled by the command
+                raise
                 
             # Format the response for Discord
             formatted_response = f"**Roast of {player_name}**\n\n{response}"

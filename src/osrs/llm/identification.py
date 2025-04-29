@@ -3,7 +3,7 @@ import datetime
 import time
 import aiohttp
 from config.config import config
-from osrs.llm.llm_service import llm_service
+from osrs.llm.llm_service import llm_service, LLMServiceError
 from osrs.llm.image_processing import fetch_image, identify_items_in_images
 from osrs.wiseoldman import get_guild_members_data, get_guild_members_names, fetch_player_details, fetch_metric
 
@@ -88,7 +88,11 @@ async def identify_wiki_pages(user_query: str, image_urls: list[str] = None):
         """
 
         print("[API CALL: LLM SERVICE] identify_wiki_pages")
-        response_text = await llm_service.generate_text(prompt)
+        try:
+            response_text = await llm_service.generate_text(prompt)
+        except LLMServiceError as e:
+            # Let the exception propagate up to be handled by the command
+            raise
 
         # Check if the response indicates no pages were found
         if response_text == "[NO_PAGES_FOUND]":
@@ -148,8 +152,12 @@ async def identify_followup_wiki_pages(
         """
 
         print("[API CALL: LLM SERVICE] identify_followup_wiki_pages")
-        response_text = await llm_service.generate_text(prompt)
-        response_text = response_text.strip()
+        try:
+            response_text = await llm_service.generate_text(prompt)
+            response_text = response_text.strip()
+        except LLMServiceError as e:
+            # Let the exception propagate up to be handled by the command
+            raise
 
         if response_text == "[NO_PAGES_NEEDED]":
             print("No additional wiki pages needed.")
@@ -230,8 +238,12 @@ async def identify_mentioned_players(user_query: str, guild_members: list, reque
         """
         
         print("[API CALL: LITELLM] identify_mentioned_players")
-        response_text = await llm_service.generate_text(prompt)
-        response_text = response_text.strip()
+        try:
+            response_text = await llm_service.generate_text(prompt)
+            response_text = response_text.strip()
+        except LLMServiceError as e:
+            # Let the exception propagate up to be handled by the command
+            raise
         
         # Check special responses
         if response_text == "[NO_MEMBERS]":
@@ -273,10 +285,14 @@ async def generate_search_term(query):
         """
         
         print("[API CALL: LITELLM] generate_search_term")
-        response_text = await llm_service.generate_text(prompt)
-        search_term = response_text.strip()
-        print(f"Generated search term: {search_term}")
-        return search_term
+        try:
+            response_text = await llm_service.generate_text(prompt)
+            search_term = response_text.strip()
+            print(f"Generated search term: {search_term}")
+            return search_term
+        except LLMServiceError as e:
+            # Let the exception propagate up to be handled by the command
+            raise
         
     except Exception as e:
         print(f"Error generating search term: {e}")
@@ -334,7 +350,11 @@ async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
         
         # Use a shorter timeout for this decision to avoid adding too much latency
         print("[API CALL: LITELLM] is_player_only_query")
-        response = await llm_service.generate_text(prompt)
+        try:
+            response = await llm_service.generate_text(prompt)
+        except LLMServiceError as e:
+            # Let the exception propagate up to be handled by the command
+            raise
         
         is_player_only = response.upper() == "YES"
         print(f"Query analysis result: {response} (is_player_only={is_player_only})")
@@ -356,6 +376,8 @@ async def is_prohibited_query(user_query: str) -> bool:
         Boolean indicating if the query is about prohibited topics
         
     """
+
+    return False # Do not use this for now, it is not accurate enough and we have other ways to handle this
         
     try:
         
@@ -389,7 +411,11 @@ async def is_prohibited_query(user_query: str) -> bool:
         
         # Use a shorter timeout for this decision
         print("[API CALL: LITELLM] is_prohibited_query")
-        response = await llm_service.generate_text(prompt)
+        try:
+            response = await llm_service.generate_text(prompt)
+        except LLMServiceError as e:
+            # Let the exception propagate up to be handled by the command
+            raise
         
         is_prohibited = response.strip().upper() == "YES"
         print(f"Query prohibition check result: {response} (is_prohibited={is_prohibited})")
@@ -465,7 +491,17 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
         from osrs.wiki import fetch_osrs_wiki_pages
         
         # First identify and fetch wiki content
-        page_names = await identify_wiki_pages(user_query, image_urls)
+        try:
+            page_names = await identify_wiki_pages(user_query, image_urls)
+        except LLMServiceError as e:
+            # Update status message if available
+            if status_message:
+                if hasattr(e, 'retry_after') and e.retry_after:
+                    await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                else:
+                    await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+            # Re-raise to be handled by the command
+            raise
         if page_names:
             # Normalize page names
             normalized_wiki_page_names = [name.replace(' ', '_') for name in page_names]
@@ -491,10 +527,20 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
         
         # Check if wiki content is sufficient before doing any web searches
         if wiki_content:
-            is_wiki_sufficient = await is_wiki_only_query(user_query, wiki_content)
-            if is_wiki_sufficient:
-                print("Wiki content deemed sufficient, skipping web search")
-                return wiki_content, updated_page_names, wiki_sources, []
+            try:
+                is_wiki_sufficient = await is_wiki_only_query(user_query, wiki_content)
+                if is_wiki_sufficient:
+                    print("Wiki content deemed sufficient, skipping web search")
+                    return wiki_content, updated_page_names, wiki_sources, []
+            except LLMServiceError as e:
+                # Update status message if available
+                if status_message:
+                    if hasattr(e, 'retry_after') and e.retry_after:
+                        await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                    else:
+                        await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+                # Re-raise to be handled by the command
+                raise
         
         # If we need web content, do the web search
         if status_message:
@@ -634,8 +680,12 @@ async def identify_mentioned_metrics(user_query: str) -> list:
         """
         
         print("[API CALL: LITELLM] identify_mentioned_metrics")
-        response_text = await llm_service.generate_text(prompt)
-        response_text = response_text.strip().lower()
+        try:
+            response_text = await llm_service.generate_text(prompt)
+            response_text = response_text.strip().lower()
+        except LLMServiceError as e:
+            # Let the exception propagate up to be handled by the command
+            raise
         
         if response_text == "none":
             print("No metrics identified in query")
@@ -735,7 +785,11 @@ async def is_wiki_only_query(user_query: str, wiki_content: str) -> bool:
         
         # Use a shorter timeout for this decision
         print("[API CALL: LITELLM] is_wiki_only_query")
-        response = await llm_service.generate_text(prompt)
+        try:
+            response = await llm_service.generate_text(prompt)
+        except LLMServiceError as e:
+            # Let the exception propagate up to be handled by the command
+            raise
         
         is_wiki_sufficient = response.upper() == "YES"
         print(f"Wiki content sufficiency analysis: {response} (is_wiki_sufficient={is_wiki_sufficient})")

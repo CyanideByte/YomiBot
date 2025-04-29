@@ -9,6 +9,8 @@ cache/*
 queues/*
 !queues/.gitkeep
 deploy/
+.roo/
+.roo*
 
 =======
 # Python
@@ -78,5 +80,3 @@ next-env.d.ts
 *~
 .DS_Store
 Thumbs.db
-.roomodes
-.rooignore
