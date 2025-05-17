@@ -21,6 +21,10 @@ A versatile Discord bot for OSRS Clan Mesa with music playback, Old School RuneS
 - Track Boss of the Week (BOTW) competitions
 - Integration with Wise Old Man API
 
+### 🌐 Web Interface
+- Real-time bot status monitoring
+- Current music queue display
+
 ## Installation
 
 1. Clone the repository:
@@ -107,6 +111,12 @@ chmod +x start_yomibot.sh
 ./start_yomibot.sh
 ```
 
+### Web Interface
+The bot includes a web interface for monitoring its status:
+1. Configure your web server to serve the `www/` directory
+2. Access the interface through your web browser
+3. View real-time bot status and current music queue
+
 ## Commands
 
 ### Music Commands
@@ -133,39 +143,54 @@ chmod +x start_yomibot.sh
 ## Project Structure
 
 ```
-src/
-├── yomibot.py             # Main bot file
-├── config/                # Configuration handling
-│   ├── __init__.py
-│   └── config.py
-├── music/                 # Music player functionality
-│   ├── __init__.py
-│   ├── music_commands.py
-│   ├── music_manager.py
-│   └── music_sources.py
-├── osrs/                  # OSRS Wiki integration
-│   ├── __init__.py
-│   ├── llm.py
-│   ├── wiki.py
-│   ├── wiseoldman.py      # Wise Old Man API integration
-│   ├── search.py
-│   └── llm/               # LLM functionality
+.
+├── src/
+│   ├── yomibot.py            # Main bot file
+│   ├── config/               # Configuration handling
+│   │   ├── __init__.py
+│   │   └── config.py
+│   ├── music/                # Music player functionality
+│   │   ├── __init__.py
+│   │   ├── music_commands.py
+│   │   ├── music_manager.py
+│   │   └── music_sources.py
+│   └── osrs/                 # OSRS functionality
 │       ├── __init__.py
-│       ├── commands.py
-│       ├── identification.py
-│       ├── image_processing.py
-│       ├── query_processing.py
-│       └── source_management.py
+│       ├── search.py
+│       ├── wiki.py
+│       ├── wiseoldman.py     # Wise Old Man API integration
+│       └── llm/              # LLM functionality
+│           ├── __init__.py
+│           ├── chat_endpoint.py
+│           ├── commands.py
+│           ├── identification.py
+│           ├── image_processing.py
+│           ├── llm_service.py
+│           ├── query_processing.py
+│           └── source_management.py
+├── www/                      # Web interface
+│   ├── index.php
+│   ├── get_current_state.php
+│   ├── yomibot.png
+│   ├── yomimusic.png
+│   └── favicon.ico
+├── .env.example             # Environment variables template
+├── requirements.txt         # Python dependencies
+└── start_yomibot.sh        # Startup script
 ```
 
 ## Dependencies
 
-- discord.py - Discord API wrapper
-- yt-dlp - YouTube downloader
-- spotipy - Spotify API client
-- requests - HTTP requests
-- BeautifulSoup4 - HTML parsing
-- google-generativeai - Google Gemini API client
+- discord.py (≥2.0.0) - Discord API wrapper
+- yt-dlp (≥2023.3.4) - YouTube downloader
+- spotipy (≥2.22.1) - Spotify API client
+- requests (≥2.28.2) - HTTP requests
+- beautifulsoup4 (≥4.11.2) - HTML parsing
+- google-generativeai (≥0.3.0) - Google Gemini API client
+- asyncio (≥3.4.3) - Asynchronous I/O
+- python-dotenv (≥1.0.0) - Environment variable management
+- PyNaCl (≥1.5.0) - Voice support
+- litellm (≥1.0.0) - LLM interface
 
 ## Author
 

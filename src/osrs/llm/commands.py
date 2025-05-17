@@ -16,6 +16,18 @@ def register_commands(bot):
     async def askyomi(ctx, *, user_query: str = ""):
         # Get the user's Discord ID for context tracking
         user_id = str(ctx.author.id)
+
+        # Initialize replied_message_content
+        replied_message_content = ""
+
+        # Check if the command is a reply to another message
+        if ctx.message.reference and ctx.message.reference.message_id:
+            try:
+                referenced_message = await ctx.fetch_message(ctx.message.reference.message_id)
+                if referenced_message and referenced_message.content:
+                    replied_message_content = f"User replying to message: \"{referenced_message.content}\"\n\nUser message: "
+            except Exception as e:
+                print(f"Error fetching replied message: {e}")
         
         # Check for image attachments
         image_urls = []
@@ -42,10 +54,13 @@ def register_commands(bot):
                 reference=ctx.message
             )
 
+        # Combine replied message content with the user query
+        combined_query = replied_message_content + user_query
+
         try:
             # Pass initial processing message to allow for status updates
             response = await process_unified_query(
-                user_query or "What is this OSRS item?",
+                combined_query or "What is this OSRS item?", # Use combined_query
                 user_id=user_id,
                 image_urls=image_urls,
                 requester_name=ctx.author.display_name,
