@@ -49,7 +49,7 @@ BOSS_METRICS = [
     'the_hueycoatl', 'the_leviathan', 'the_royal_titans', 'the_whisperer', 'theatre_of_blood',
     'theatre_of_blood_hard_mode', 'thermonuclear_smoke_devil', 'tombs_of_amascut',
     'tombs_of_amascut_expert', 'tzkal_zuk', 'tztok_jad', 'vardorvis', 'venenatis', 'vetion',
-    'vorkath', 'wintertodt', 'zalcano', 'zulrah'
+    'vorkath', 'wintertodt', 'yama', 'zalcano', 'zulrah'
 ]
 
 TYPE_MAPPING = {

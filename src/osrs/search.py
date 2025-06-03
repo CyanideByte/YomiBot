@@ -21,7 +21,8 @@ EXCLUDED_TERMS = [
     "luckycharmgold.com", "osbuddy.com", "osbot.org", "runemate.com",
     "osrsbots.com", "oldschoolscripts.com", "dreambot.org", "epicbot.com",
     "tribot.org", "robotzindisguise.com", "topg.org", "runelocus.com",
-    "rsps-list.com", "sythe.org", "top100arena.com", "moparscape.org"
+    "rsps-list.com", "sythe.org", "top100arena.com", "moparscape.org",
+    "sherpasboosting.com"
 ]
 
 # Allowed RuneScape wiki domains
