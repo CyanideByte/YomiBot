@@ -8,6 +8,7 @@ A versatile Discord bot for OSRS Clan Mesa with music playback, Old School RuneS
 - Play music from YouTube and Spotify
 - Queue management (add, skip, shuffle, purge)
 - Support for playlists, albums, and artist top tracks
+- Uses `spotifyscraper` as a fallback for playlists if the Spotify API is unavailable.
 - Persistent queue across bot restarts
 
 ### 🎮 OSRS Wiki Integration
@@ -191,6 +192,7 @@ The bot includes a web interface for monitoring its status:
 - python-dotenv (≥1.0.0) - Environment variable management
 - PyNaCl (≥1.5.0) - Voice support
 - litellm (≥1.0.0) - LLM interface
+- spotifyscraper (≥2.0.20) - Spotify data scraping (fallback for playlists)
 
 ## Author
 

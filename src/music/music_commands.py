@@ -9,6 +9,8 @@ import yt_dlp as youtube_dl
 import spotipy
 from .music_manager import save_queue, normalize_youtube_music_url
 from .music_sources import ytdl, spotify, YTDLSource, ytdl_format_options
+from spotify_scraper import SpotifyClient
+from spotify_scraper.core.exceptions import SpotifyScraperError as ScraperSpotifyScraperError, URLError as ScraperURLError, ExtractionError as ScraperExtractionError
 from .music_manager import (
     get_server_state, play_next, preload_next_song, 
     clear_queue_and_current_song
@@ -117,8 +119,10 @@ def setup_music_commands(bot):
                 else:
                     try:
                         if url_type == 'playlist':
-                            items = spotify.playlist_tracks(search, limit=10)['items']
+                            # Send this message before attempting to get tracks, so it's consistent
+                            # whether Spotipy or the scraper is used.
                             await ctx.send(f'Adding top 10 tracks from the Spotify playlist...')
+                            items = spotify.playlist_tracks(search, limit=10)['items']
                         elif url_type == 'album':
                             items = spotify.album_tracks(search, limit=10)['items']
                             await ctx.send(f'Adding top 10 tracks from the Spotify album...')
@@ -127,9 +131,58 @@ def setup_music_commands(bot):
                             await ctx.send(f'Adding top 10 tracks from the Spotify artist...')
                     except spotipy.exceptions.SpotifyException as se:
                         if se.http_status == 404:
-                            await ctx.send("Spotify resource not found or not accessible.")
-                            return
-                        else:
+                            if url_type == 'playlist':
+                                # Scraper fallback initiated without a specific "fallback" message to the user,
+                                # as the "Adding top 10 tracks..." message has already been sent.
+                                scraper_client = None # Initialize to None for finally block
+                                try:
+                                    scraper_client = SpotifyClient()
+                                    # Run synchronous scraper call in executor
+                                    playlist_data = await asyncio.get_event_loop().run_in_executor(
+                                        None,
+                                        scraper_client.get_playlist_info,
+                                        search  # 'search' is the playlist URL
+                                    )
+
+                                    if playlist_data and playlist_data.get('tracks'):
+                                        scraped_tracks_raw = playlist_data.get('tracks', [])
+                                        transformed_items = []
+                                        for scraped_track in scraped_tracks_raw[:10]:  # Limit to 10
+                                            if scraped_track and 'name' in scraped_track and 'artists' in scraped_track:
+                                                # Ensure 'duration_ms' exists, default to 0 if not
+                                                if 'duration_ms' not in scraped_track:
+                                                    scraped_track['duration_ms'] = 0
+                                                transformed_items.append({'track': scraped_track})
+                                        
+                                        if transformed_items:
+                                            items = transformed_items  # Override items with scraper results
+                                            # The message at line 121 was already sent, scraper sends its own.
+                                            # We can adjust messaging if needed later.
+                                        else:
+                                            await ctx.send("Scraper found playlist, but no tracks could be processed or playlist is empty.")
+                                            if scraper_client: scraper_client.close()
+                                            return  # Stop if scraper gets no usable tracks
+                                    else:
+                                        await ctx.send("Spotify resource not found or not accessible, scraper also found no data.")
+                                        if scraper_client: scraper_client.close()
+                                        return  # Stop if scraper finds no data
+                                except (ScraperURLError, ScraperExtractionError, ScraperSpotifyScraperError) as s_exc:
+                                    await ctx.send(f"Spotify scraper fallback failed: {s_exc}")
+                                    if scraper_client: scraper_client.close()
+                                    return  # Stop if scraper errors
+                                except Exception as e_scraper:
+                                    traceback.print_exc() # For debugging unexpected scraper errors
+                                    await ctx.send(f"An unexpected error occurred with the Spotify scraper: {e_scraper}")
+                                    if scraper_client: scraper_client.close()
+                                    return  # Stop on other scraper errors
+                                finally:
+                                    if scraper_client: # Ensure client is closed if initialized
+                                        scraper_client.close()
+                                # If we reached here, 'items' is populated by scraper, proceed to the main processing loop
+                            else:  # if not playlist or other 404 error for different url_type
+                                await ctx.send("Spotify resource not found or not accessible.")
+                                return
+                        else:  # if not 404 status
                             await ctx.send(f"Spotify error: {se}")
                             return
 
