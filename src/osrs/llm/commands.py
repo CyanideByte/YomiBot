@@ -168,8 +168,10 @@ def register_commands(bot):
             seed = random.randint(1, 1000000)
             encoded_prompt = quote(prompt)
             
-            # Construct the API URL
-            url = f"https://pollinations.ai/prompt/{encoded_prompt}?seed={seed}&nologo=true&model=flux&enhance=true"
+            # Construct the API URL (updated format) SEED PARAM BROKEN
+            url = f"https://pollinations.ai/p/{encoded_prompt}?enhance=true&nologo=true&model=flux"
+
+            print(f"Requesting image from: {url}")
 
             # Make the request to get the image
             async with aiohttp.ClientSession() as session:
