@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
 
 # Cache directory paths
-CACHE_ROOT = PROJECT_ROOT / 'cache'
+CACHE_ROOT = PROJECT_ROOT / 'data' / 'cache'
 WIKI_CACHE = CACHE_ROOT / 'wiki'
 ARTICLE_CACHE = WIKI_CACHE / 'articles'
 WOM_CACHE = CACHE_ROOT / 'wiseoldman'

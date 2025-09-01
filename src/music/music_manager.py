@@ -6,7 +6,7 @@ import re
 import time
 from config.config import PROJECT_ROOT
 
-QUEUE_DIR = os.path.join(PROJECT_ROOT, 'queues')
+QUEUE_DIR = os.path.join(PROJECT_ROOT, 'data', 'queues')
 
 # Ensure queue directory exists
 if not os.path.exists(QUEUE_DIR):
@@ -204,7 +204,6 @@ def clear_queue_and_current_song(ctx):
     
     state['queue'] = []
     save_queue(ctx.guild.id, state['queue'])
-    currently_playing_file = os.path.join(QUEUE_DIR, f'currently_playing_{ctx.guild.id}.json')
     currently_playing_file = os.path.join(QUEUE_DIR, f'currently_playing_{ctx.guild.id}.json')
     with open(currently_playing_file, 'w') as f:
         json.dump({}, f, indent=4)
