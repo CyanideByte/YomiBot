@@ -98,6 +98,20 @@ To play age-restricted YouTube videos, create a `youtube_cookies.txt` file in th
 4. Click "Export" and select "Netscape HTTP Cookie File"
 5. Save the exported content as `youtube_cookies.txt` in the bot's root directory
 
+### Proxy Configuration (Optional)
+To use proxies for music playback and avoid rate limiting, create a `proxies.txt` file in the root directory:
+1. Create a `proxies.txt` file in the bot's root directory
+2. Add one proxy per line in the format: `http://username:password@host:port`
+3. The bot will automatically rotate through these proxies when encountering rate limits
+4. If all proxies fail, the bot will display an error message
+
+Example `proxies.txt` content:
+```
+http://user1:pass1@192.168.1:8080
+http://user2:pass2@192.168.1.2:8080
+http://user3:pass3@192.168.1.3:8080
+```
+
 ## Usage
 
 ### Running the Bot

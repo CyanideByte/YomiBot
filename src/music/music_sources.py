@@ -12,12 +12,15 @@ youtube_cookies_path = PROJECT_ROOT / 'youtube_cookies.txt'
 print(f"YouTube cookies file: {'Found' if youtube_cookies_path.exists() else 'Not found'} at {youtube_cookies_path}")
 from config.config import config, PROJECT_ROOT
 
-# YouTube DL configuration
+# Use proxies from config
+PROXIES = config.proxies
+
+# YouTube DL configuration (without proxy, as we'll handle proxy rotation separately)
 ytdl_format_options = {
     'format': 'bestaudio/best',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
     'restrictfilenames': True,
-    'noplaylist': False,
+    'noplaylist': True,
     'nocheckcertificate': True,
     'ignoreerrors': False,
     'logtostderr': False,
@@ -33,7 +36,7 @@ ytdl_format_options = {
     'retries': 10,
     'fragment_retries': 10,
     'skip_unavailable_fragments': True,
-    'external_downloader_args': ['-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5'],
+    'concurrent_fragment_downloads': 1
 }
 
 # Print a warning if cookies file doesn't exist
@@ -41,7 +44,7 @@ if not youtube_cookies_path.exists():
     print(f"WARNING: YouTube cookies file not found at {youtube_cookies_path}. Some videos may require authentication.")
 
 ffmpeg_options = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1 -reconnect_on_http_error 404',
+    'before_options': '-reconnect 1 -reconnect_delay_max 5 -reconnect_on_network_error 1 -reconnect_on_http_error 404',
     'options': '-vn -bufsize 128k'
 }
 
@@ -70,31 +73,59 @@ class YTDLSource(discord.PCMVolumeTransformer):
     async def from_url(cls, url, *, loop=None, stream=False):
         loop = loop or asyncio.get_event_loop()
 
-        # We'll attempt extraction with default format first.
-        try:
-            data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
-        except youtube_dl.utils.DownloadError as e:
-            # If "Requested format not available", try without 'format' option
-            if "Requested format is not available" in str(e):
-                fallback_options = ytdl_format_options.copy()
-                if 'format' in fallback_options:
-                    del fallback_options['format']
-                fallback_ytdl = youtube_dl.YoutubeDL(fallback_options)
-                try:
-                    data = await loop.run_in_executor(None, lambda: fallback_ytdl.extract_info(url, download=not stream))
-                except Exception as e2:
-                    raise Exception(f"Could not find a suitable format. {str(e2)}")
-            else:
-                if 'Sign in to confirm your age' in str(e):
-                    raise Exception("This video requires age confirmation and cannot be played.")
-                elif 'Sign in to confirm you' in str(e) or 'cookies' in str(e).lower():
-                    cookies_path = PROJECT_ROOT / 'youtube_cookies.txt'
-                    cookies_exists = cookies_path.exists()
-                    raise Exception(f"Authentication required. YouTube cookies file {'exists' if cookies_exists else 'not found'} at {cookies_path}. Please check the cookies file.")
+        # Try proxies in rotation for HTTP 429 errors
+        last_error = None
+        for i, proxy in enumerate(PROXIES):  # Only try the proxies in the list, never without proxy
+            try:
+                # Create ytdl options with current proxy
+                current_options = ytdl_format_options.copy()
+                current_options['proxy'] = proxy
+                
+                current_ytdl = youtube_dl.YoutubeDL(current_options)
+                
+                # We'll attempt extraction with default format first.
+                data = await loop.run_in_executor(None, lambda: current_ytdl.extract_info(url, download=not stream))
+                break  # Success, exit the loop
+            except youtube_dl.utils.DownloadError as e:
+                last_error = e
+                # If it's a 429 error and we have more proxies to try, continue to next proxy
+                if "HTTP Error 429: Too Many Requests" in str(e) and i < len(PROXIES) - 1:
+                    print(f"Proxy {proxy} failed with 429 error, trying next proxy...")
+                    continue
+                # If "Requested format not available", try without 'format' option
+                elif "Requested format is not available" in str(e):
+                    fallback_options = current_options.copy()
+                    if 'format' in fallback_options:
+                        del fallback_options['format']
+                    fallback_ytdl = youtube_dl.YoutubeDL(fallback_options)
+                    try:
+                        data = await loop.run_in_executor(None, lambda: fallback_ytdl.extract_info(url, download=not stream))
+                        break  # Success, exit the loop
+                    except Exception as e2:
+                        last_error = e2
+                        if "HTTP Error 429: Too Many Requests" in str(e2) and i < len(PROXIES) - 1:
+                            print(f"Proxy {proxy} failed with 429 error on fallback, trying next proxy...")
+                            continue
+                        else:
+                            # If it's not a 429 error, or we've tried all proxies, raise the error
+                            raise Exception(f"Could not find a suitable format. {str(e2)}")
                 else:
-                    raise Exception(f"An error occurred: {str(e)}")
-        except Exception as general_e:
-            raise Exception(f"An error occurred: {str(general_e)}")
+                    if 'Sign in to confirm your age' in str(e):
+                        raise Exception("This video requires age confirmation and cannot be played.")
+                    elif 'Sign in to confirm you' in str(e) or 'cookies' in str(e).lower():
+                        cookies_path = PROJECT_ROOT / 'youtube_cookies.txt'
+                        cookies_exists = cookies_path.exists()
+                        raise Exception(f"Authentication required. YouTube cookies file {'exists' if cookies_exists else 'not found'} at {cookies_path}. Please check the cookies file.")
+                    else:
+                        # If it's not a 429 error, or we've tried all proxies, raise the error
+                        raise Exception(f"An error occurred: {str(e)}")
+            except Exception as general_e:
+                last_error = general_e
+                # If it's not a 429 error, or we've tried all proxies, raise the error
+                raise Exception(f"An error occurred: {str(general_e)}")
+        else:
+            # If we've exhausted all proxies and still failed
+            raise Exception(f"All proxies failed. Last error: {str(last_error)}")
 
         if 'entries' in data:
             if not data['entries']:

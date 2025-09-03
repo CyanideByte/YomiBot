@@ -50,6 +50,7 @@ class Config:
         self.brave_api_key = None
         self.wise_old_man_api_key = None
         self.wise_old_man_user_agent = None
+        self.proxies = []
         self.default_model = "gemini/gemini-2.0-flash"
         self.user_agent = "YomiBot"
         ensure_cache_directories()  # Ensure cache directories exist on startup
@@ -66,6 +67,7 @@ class Config:
         self._load_openrouter_config()
         self._load_brave_config()
         self._load_wise_old_man_config()
+        self._load_proxies()
     
     def _load_bot_token(self):
         """Load bot token from environment variable or fallback to file"""
@@ -189,6 +191,21 @@ class Config:
         
         if not self.wise_old_man_user_agent:
             print("Warning: WISE_OLD_MAN_USER_AGENT environment variable is not set")
+
+    def _load_proxies(self):
+        """Load proxies from proxies.txt file"""
+        proxies_file = PROJECT_ROOT / 'proxies.txt'
+        if proxies_file.exists():
+            try:
+                with open(proxies_file, 'r') as f:
+                    self.proxies = [line.strip() for line in f if line.strip()]
+                print(f"Loaded {len(self.proxies)} proxies from {proxies_file}")
+            except Exception as e:
+                print(f"Error loading proxies from {proxies_file}: {e}")
+                self.proxies = []
+        else:
+            print(f"WARNING: proxies.txt file not found at {proxies_file}")
+            self.proxies = []
 
 # Create a singleton instance
 config = Config()
