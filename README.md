@@ -207,7 +207,8 @@ The bot includes a web interface for monitoring its status:
 - PyNaCl (≥1.5.0) - Voice support
 - litellm (≥1.0.0) - LLM interface
 - spotifyscraper (≥2.0.20) - Spotify data scraping (fallback for playlists)
-- Pillow (≥1.3.0) - Python Imaging Library
+- Pillow (≥11.3.0) - Python Imaging Library
+- brotli (≥1.2.0) - Compression library
 
 ## Author
 
