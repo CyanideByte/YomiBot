@@ -22,7 +22,7 @@ EXCLUDED_TERMS = [
     "osrsbots.com", "oldschoolscripts.com", "dreambot.org", "epicbot.com",
     "tribot.org", "robotzindisguise.com", "topg.org", "runelocus.com",
     "rsps-list.com", "sythe.org", "top100arena.com", "moparscape.org",
-    "sherpasboosting.com"
+    "sherpasboosting.com", "1v9.gg"
 ]
 
 # Allowed RuneScape wiki domains
