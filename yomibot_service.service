@@ -1,0 +1,14 @@
+[Unit]
+Description=YomiBot Service
+# Wait for the system to be fully up
+After=network.target
+
+[Service]
+# Make python printing show up in the logs
+Environment=PYTHONUNBUFFERED=1
+# Use the absolute path for the script itself
+ExecStart=/sbin/runuser -u cyanide -g cyanide -- /bin/bash /home/cyanide/yomibot/start_yomibot_service.sh
+# Best practice for long-running bots/apps
+Restart=always
+[Install]
+WantedBy=multi-user.target
