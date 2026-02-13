@@ -703,7 +703,7 @@ async def identify_mentioned_metrics(user_query: str) -> list:
            - "hm tob" or "hard tob" = "theatre_of_blood_hard_mode"
            - "expert toa" = "tombs_of_amascut_expert"
            - "infernal cape" = "tzkal_zuk"
-           - "quiver" or "dizana quiver" = "sol_heredit"
+           - "quiver" or "colosseum" = "sol_heredit"
         
         Respond ONLY with a comma-separated list of identified metrics, or "none" if no metrics are mentioned.
         """
