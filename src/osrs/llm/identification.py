@@ -694,13 +694,16 @@ async def identify_mentioned_metrics(user_query: str) -> list:
         2. Return metrics in their exact format from the lists above (lowercase with underscores)
         3. If multiple metrics are mentioned, list them all
         4. If no metrics are mentioned, respond with "none"
-        5. Common abbreviations should be mapped to their full metric name:
+        5. Sailing is a new skill in OSRS, it is already released.
+        6. Common abbreviations should be mapped to their full metric name:
            - "cox" = "chambers_of_xeric"
            - "tob" = "theatre_of_blood"
            - "toa" = "tombs_of_amascut"
            - "cm" or "cox cm" = "chambers_of_xeric_challenge_mode"
            - "hm tob" or "hard tob" = "theatre_of_blood_hard_mode"
            - "expert toa" = "tombs_of_amascut_expert"
+           - "infernal cape" = "tzkal_zuk"
+           - "quiver" or "dizana quiver" = "sol_heredit"
         
         Respond ONLY with a comma-separated list of identified metrics, or "none" if no metrics are mentioned.
         """
