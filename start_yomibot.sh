@@ -15,6 +15,7 @@ screen -dmS $SESSION_NAME bash -c "
   cd $(dirname $SCRIPT_PATH)
   # Update yt-dlp to the latest version
   echo 'Updating yt-dlp to the latest version...'
+  pip install --upgrade pip
   pip install --upgrade yt-dlp
   echo 'yt-dlp update complete'
   # Start the yomibot script

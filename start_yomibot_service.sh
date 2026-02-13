@@ -12,6 +12,7 @@ source "$VENV_PATH/bin/activate"
 
 # 4. Update dependencies (Optional: doing this on every boot slows startup, but I'll leave it)
 echo "Updating yt-dlp..."
+pip install --upgrade pip
 pip install --upgrade yt-dlp
 
 # 5. Run the Bot
