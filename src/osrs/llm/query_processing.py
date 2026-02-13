@@ -22,6 +22,11 @@ You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer 
 2. OSRS Wiki information when available
 3. Web search results when necessary
 
+Notes:
+1. When players refer to a "quiver" or "dizana quiver", they are referring to the "sol_heredit" metric on WiseOldMan, which is the boss that drops the dizana's quiver.
+2. When players refer to "infernal cape", they are referring to the "tzkal_zuk" metric on WiseOldMan, which is the boss that drops the infernal cape.
+3. Sailing is a new skill in OSRS, it is already released.
+
 Content Rules:
 1. Use only the provided information sources when possible
 2. If player data is available, analyze it thoroughly to answer player-specific questions
@@ -474,6 +479,7 @@ async def roast_player(player_data, status_message=None):
     5. Ridicule high levels in easy skills while roasting their terrible levels in actual challenging skills
     6. Use words like "pathetic", "embarrassing", "terrible", "laughable"
     7. End with a devastating final punch
+    8. Sailing is a new skill in OSRS, it is already released.
 
     Player Name: {player_name}
     
