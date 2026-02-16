@@ -167,7 +167,7 @@ def register_commands(bot):
             # Generate random seed and encode prompt
             seed = random.randint(1, 1000000)
             encoded_prompt = quote(prompt)
-            
+
             # Construct the API URL (updated format) SEED PARAM BROKEN
             url = f"https://pollinations.ai/p/{encoded_prompt}?enhance=true&nologo=true&model=flux"
 
@@ -179,14 +179,14 @@ def register_commands(bot):
                     if response.status != 200:
                         await processing_msg.edit(content=f"Error: Failed to generate image (Status {response.status})")
                         return
-                    
+
                     # Get the image data
                     image_data = await response.read()
-                    
+
                     # Edit the message with the image
                     from discord import File
                     from io import BytesIO
-                    
+
                     # Create a file-like object from the image data
                     file = File(BytesIO(image_data), filename="generated_image.jpg")
                     await processing_msg.edit(content=f"🎨 Generated image for: {prompt}", attachments=[file])
@@ -194,3 +194,8 @@ def register_commands(bot):
         except Exception as e:
             print(f"Error in image command: {e}")
             await processing_msg.edit(content=f"Sorry, something went wrong while generating the image: {str(e)}")
+
+    @bot.command(name='roll', help='Rolls a 6-sided die')
+    async def roll(ctx):
+        result = random.randint(1, 6)
+        await ctx.send(f"🎲 You rolled a **{result}**!", reference=ctx.message)
