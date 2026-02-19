@@ -7,6 +7,16 @@ from osrs.llm.llm_service import llm_service, LLMServiceError
 from osrs.llm.image_processing import fetch_image, identify_items_in_images
 from osrs.wiseoldman import get_guild_members_data, get_guild_members_names, fetch_player_details, fetch_metric
 
+# Import tool-based versions for LLM calls
+from osrs.llm.identification_tools import (
+    identify_wiki_pages as identify_wiki_pages_tools,
+    identify_mentioned_players as identify_mentioned_players_tools,
+    identify_mentioned_metrics as identify_mentioned_metrics_tools,
+    classify_query,
+    suggest_followup_wiki_pages,
+    generate_search_term,
+)
+
 # Predefined metric names for OSRS
 SKILL_METRICS = [
     'overall', 'attack', 'defence', 'strength', 'hitpoints', 'ranged', 'prayer', 'magic',
@@ -301,65 +311,24 @@ async def generate_search_term(query):
 async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
     """
     Determine if a query can be answered using only player data without wiki/web searches
-    
+
     Args:
         user_query: The user's query text
         player_data_list: List of player data objects
-        
+
     Returns:
         Boolean indicating if the query can be answered with player data only
     """
     if not player_data_list or len(player_data_list) == 0:
         return False
-        
+
     try:
-        # If we have player data, use Gemini to determine if it's a player-only query
-        
-        # Create a simplified version of the player data for analysis
-        simplified_data = []
-        for player_data in player_data_list:
-            player_name = player_data.get('displayName', 'Unknown')
-            simplified_data.append({
-                'name': player_name,
-                'data_available': 'skills and boss kill counts'
-            })
-            
-        prompt = f"""
-        Analyze this query about OSRS players and determine if it can be answered using ONLY player stats and boss kill counts, without needing any wiki information or web searches.
-        
-        Query: "{user_query}"
-        
-        Available player data: {simplified_data}
-        
-        Examples of player-only queries:
-        - "Who has the highest Slayer level?"
-        - "What's CyanideByte's highest boss KC?"
-        - "Compare the Zulrah kill counts of these players"
-        - "Who has more ToB KC?"
-        - "Which player has the highest total level?"
-        - "Who is better at PvM based on boss KCs?"
-        
-        Examples of queries that need wiki/web information:
-        - "What's the best gear for Zulrah?"
-        - "How do I complete Dragon Slayer 2?"
-        - "What are the drop rates for Vorkath?"
-        - "When was Chambers of Xeric released?"
-        
-        Respond with ONLY "YES" if the query can be answered with player data alone, or "NO" if wiki/web information is needed.
-        """
-        
-        # Use a shorter timeout for this decision to avoid adding too much latency
-        print("[API CALL: LITELLM] is_player_only_query")
-        try:
-            response = await llm_service.generate_text(prompt)
-        except LLMServiceError as e:
-            # Let the exception propagate up to be handled by the command
-            raise
-        
-        is_player_only = response.upper() == "YES"
-        print(f"Query analysis result: {response} (is_player_only={is_player_only})")
+        # Use tool-based classify_query
+        result = await classify_query(user_query, player_data_list=player_data_list)
+        is_player_only = result.get("is_player_only", False)
+        print(f"Query analysis result: is_player_only={is_player_only}")
         return is_player_only
-        
+
     except Exception as e:
         print(f"Error determining if player-only query: {e}")
         # If there's an error, default to False (safer to get more information)
@@ -368,59 +337,24 @@ async def is_player_only_query(user_query: str, player_data_list: list) -> bool:
 async def is_prohibited_query(user_query: str) -> bool:
     """
     Determine if a query is about prohibited topics that should not be answered.
-    
+
     Args:
         user_query: The user's query text
-        
+
     Returns:
         Boolean indicating if the query is about prohibited topics
-        
+
     """
 
     return False # Do not use this for now, it is not accurate enough and we have other ways to handle this
-        
+
     try:
-        
-        prompt = f"""
-        Analyze this query about OSRS and determine if it's about prohibited topics that should not be answered.
-
-        Prohibited topics include:
-        - Real world trading (buying/selling gold, accounts, or services)
-        - Botting and bot clients
-        - Unofficial 3rd party clients (like OSBuddy)
-        - Private servers (RSPS)
-
-        Query: "{user_query}"
-
-        Examples of prohibited queries:
-        - "Where can I buy OSRS gold?"
-        - "What's the best botting client?"
-        - "How do I set up OSBuddy?"
-        - "Which gold selling sites are trustworthy?"
-        - "What's the safest bot to use?"
-        - "How much does power leveling service cost?"
-        - "Can someone sell me an account?"
-        - "What RSPS has the most players?"
-        - "Which private server has the best PvP?"
-        - "How do I join SpawnPK RSPS?"
-        - "What's the IP for RoatPkz?"
-        - "Best private server for ironman mode?"
-        
-        Respond with ONLY "YES" if the query is about prohibited topics, or "NO" if it's allowed.
-        """
-        
-        # Use a shorter timeout for this decision
-        print("[API CALL: LITELLM] is_prohibited_query")
-        try:
-            response = await llm_service.generate_text(prompt)
-        except LLMServiceError as e:
-            # Let the exception propagate up to be handled by the command
-            raise
-        
-        is_prohibited = response.strip().upper() == "YES"
-        print(f"Query prohibition check result: {response} (is_prohibited={is_prohibited})")
+        # Use tool-based classify_query
+        result = await classify_query(user_query)
+        is_prohibited = result.get("is_prohibited", False)
+        print(f"Query prohibition check result: is_prohibited={is_prohibited}")
         return is_prohibited
-        
+
     except Exception as e:
         print(f"Error determining if prohibited query: {e}")
         # If there's an error, default to False (safer to allow query through)
@@ -430,25 +364,26 @@ async def is_prohibited_query(user_query: str) -> bool:
 async def identify_and_fetch_players(user_query: str, requester_name=None, status_message=None):
     """
     Identify mentioned players in the query and fetch their data
-    
+
     Args:
         user_query: The user's query text
         requester_name: Optional name of the requester
         status_message: Optional status message to update
-        
+
     Returns:
         tuple: (player_data_list, player_sources, is_all_members)
     """
     player_data_list = []
     player_sources = []
-    
+
     # Get guild members first since we need both names and full data
     guild_members = get_guild_members_data()
     # Extract names from guild members
     guild_member_names = [member['player']['displayName'] for member in guild_members]
-    
+
     try:
-        identified_players, is_all_members = await identify_mentioned_players(user_query, guild_member_names, requester_name)
+        # Use tool-based version
+        identified_players, is_all_members = await identify_mentioned_players_tools(user_query, guild_member_names, requester_name)
     except LLMServiceError as e:
         # Update status message if available
         if status_message:
@@ -469,16 +404,16 @@ async def identify_and_fetch_players(user_query: str, requester_name=None, statu
                 # Create tasks for all player fetches
                 # Find matching member data from guild members where displayName matches
                 tasks = [fetch_player_details(next(member['player'] for member in guild_members if member['player']['displayName'] == player_name), session) for player_name in identified_players]
-                
+
                 # Execute all fetches concurrently
                 print(f"Fetching data for {len(identified_players)} players concurrently...")
                 player_data_results = await asyncio.gather(*tasks)
-                
+
                 # Process results
                 for player_name, player_data in zip(identified_players, player_data_results):
                     if player_data:
                         player_data_list.append(player_data)
-                        
+
                         # Add to sources
                         player_url = f"https://wiseoldman.net/players/{player_name.lower().replace(' ', '_')}"
                         player_sources.append({
@@ -486,9 +421,9 @@ async def identify_and_fetch_players(user_query: str, requester_name=None, statu
                             'name': player_name,
                             'url': player_url
                         })
-                
+
                 print(f"Successfully fetched data for {len(player_data_list)} out of {len(identified_players)} players")
-                
+
         return player_data_list, player_sources, False
     except Exception as e:
         print(f"Error identifying and fetching players: {e}")
@@ -500,14 +435,14 @@ async def identify_and_fetch_wiki_pages(user_query: str, image_urls=None, status
     updated_page_names = []
     wiki_sources = []
     web_sources = []
-    
+
     # Import here to avoid circular imports
     from osrs.search import get_web_search_context, format_search_results
     from osrs.wiki import fetch_osrs_wiki_pages
-    
-    # First identify and fetch wiki content
+
+    # First identify and fetch wiki content - use tool-based version
     try:
-        page_names = await identify_wiki_pages(user_query, image_urls)
+        page_names = await identify_wiki_pages_tools(user_query, image_urls)
     except LLMServiceError as e:
         # Update status message if available
         if status_message:
@@ -741,20 +676,20 @@ async def identify_mentioned_metrics(user_query: str) -> list:
 async def identify_and_fetch_metrics(user_query: str, status_message=None):
     """
     Identify mentioned metrics in the query and fetch their data
-    
+
     Args:
         user_query: The user's query text
         status_message: Optional status message to update
-        
+
     Returns:
         dict: Dictionary mapping metric names to their scoreboard data
     """
     metrics_data = {}
-    
+
     try:
-        # Identify metrics mentioned in the query
+        # Identify metrics mentioned in the query - use tool-based version
         try:
-            identified_metrics = await identify_mentioned_metrics(user_query)
+            identified_metrics = await identify_mentioned_metrics_tools(user_query)
         except LLMServiceError as e:
             # Update status message if available
             if status_message:
@@ -764,7 +699,7 @@ async def identify_and_fetch_metrics(user_query: str, status_message=None):
                     await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
             # Re-raise to be handled by the command - this will exit the function immediately
             raise
-        
+
         if not identified_metrics:
             print("No metrics identified in query")
             return metrics_data
@@ -791,49 +726,23 @@ async def is_wiki_only_query(user_query: str, wiki_content: str) -> bool:
     """
     Determine if the provided wiki content contains sufficient information to answer the query
     without needing additional web searches.
-    
+
     Args:
         user_query: The user's query text
         wiki_content: The full wiki page content
-        
+
     Returns:
         Boolean indicating if the query can be answered with the provided wiki content alone
     """
     if not wiki_content:
         return False
-        
+
     try:
-            
-        prompt = f"""
-        Analyze if the provided OSRS wiki content has enough information to fully answer this query without needing additional web searches.
-        
-        Query: "{user_query}"
-        
-        Wiki content: "{wiki_content}"
-        
-        Your task is to determine if this wiki content alone contains sufficient information to provide a complete and accurate answer to the query.
-        
-        For queries about item stats, equipment stats, combat bonuses, or weapon attributes, check carefully if the content includes:
-        - Combat stats sections with attack/defense bonuses
-        - Equipment stats and requirements
-        - Special attack details (if applicable)
-        - Item attributes like speed, accuracy, or damage
-        - Price information
-        
-        Even if only basic item stats are present but they directly answer what the user is asking about, consider this sufficient.
-        Respond with ONLY "YES" if the wiki content has enough information, or "NO" if additional web searching would be needed to properly answer the query.
-        """
-        
-        # Use a shorter timeout for this decision
-        print("[API CALL: LITELLM] is_wiki_only_query")
-        try:
-            response = await llm_service.generate_text(prompt)
-        except LLMServiceError as e:
-            # Let the exception propagate up to be handled by the command
-            raise
-        
-        is_wiki_sufficient = response.upper() == "YES"
-        print(f"Wiki content sufficiency analysis: {response} (is_wiki_sufficient={is_wiki_sufficient})")
+        # Use tool-based classify_query
+        # If wiki is sufficient, no web search is needed
+        result = await classify_query(user_query, wiki_content=wiki_content)
+        is_wiki_sufficient = not result.get("needs_web_search", True)
+        print(f"Wiki content sufficiency analysis: is_wiki_sufficient={is_wiki_sufficient}")
         return is_wiki_sufficient
         
     except Exception as e:

@@ -53,6 +53,12 @@ class Config:
         self.proxies = []
         self.default_model = "gemini/gemini-2.5-flash-lite"
         self.user_agent = "YomiBot"
+
+        # Local LLM configuration
+        self.use_local_llm = False
+        self.local_llm_base = "http://localhost:1234/v1"
+        self.local_model = "qwen3-coder-30b-a3b-instruct"
+
         ensure_cache_directories()  # Ensure cache directories exist on startup
         self.load_config()
     
@@ -68,6 +74,7 @@ class Config:
         self._load_brave_config()
         self._load_wise_old_man_config()
         self._load_proxies()
+        self._load_local_llm_config()
     
     def _load_bot_token(self):
         """Load bot token from environment variable or fallback to file"""
@@ -206,6 +213,17 @@ class Config:
         else:
             print(f"WARNING: proxies.txt file not found at {proxies_file}")
             self.proxies = []
+
+    def _load_local_llm_config(self):
+        """Load local LLM configuration from environment variables"""
+        # Use string "true" for comparison (environment variables are strings)
+        self.use_local_llm = os.getenv('USE_LOCAL_LLM', 'false').lower() == 'true'
+        self.local_llm_base = os.getenv('LOCAL_LLM_BASE', 'http://localhost:1234/v1')
+        self.local_model = os.getenv('LOCAL_MODEL', 'qwen3-coder-30b-a3b-instruct')
+
+        print(f"USE_LOCAL_LLM from environment: {self.use_local_llm}")
+        print(f"LOCAL_LLM_BASE from environment: {self.local_llm_base}")
+        print(f"LOCAL_MODEL from environment: {self.local_model}")
 
 # Create a singleton instance
 config = Config()

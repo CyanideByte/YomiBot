@@ -107,7 +107,7 @@ class LLMService:
             error_msg = f"Rate limit in effect. Please try again in {remaining_time} seconds."
             print(error_msg)
             raise LLMServiceError(error_msg, retry_after=remaining_time)
-            
+
         litellm_model = model or config.default_model
 
         # Convert images to base64
@@ -140,7 +140,7 @@ class LLMService:
         except Exception as e:
             error_message = f"Error in generate_with_images: {e}"
             print(error_message)
-            
+
             # Check if this is a rate limit error
             if "RateLimitError" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                 retry_delay = self._extract_retry_delay(str(e))
@@ -150,6 +150,92 @@ class LLMService:
                 raise LLMServiceError(error_msg, e, retry_after=retry_delay)
             else:
                 # For other errors
+                raise LLMServiceError("LLM service is currently unavailable or overloaded", e)
+
+    async def generate_with_tools(
+        self,
+        prompt: str,
+        tools: list,
+        model: str = None,
+        tool_choice: str = "auto"
+    ) -> dict:
+        """
+        Generate response with tool/function calling support.
+
+        Args:
+            prompt: The user prompt
+            tools: List of tool definitions in OpenAI format
+            model: Optional model override
+            tool_choice: "auto", "required", "none", or specific tool name
+
+        Returns:
+            dict with keys:
+                - content: str (text response if no tools called)
+                - tool_calls: list of dicts (if tools were called)
+                Each tool_call has: {id, type, function: {name, arguments}}
+        """
+        # Check if we're currently rate limited
+        is_limited, remaining_time = self._is_rate_limited()
+        if is_limited:
+            error_msg = f"Rate limit in effect. Please try again in {remaining_time} seconds."
+            print(error_msg)
+            raise LLMServiceError(error_msg, retry_after=remaining_time)
+
+        # Determine which model to use
+        litellm_model = model or config.default_model
+
+        # Configure litellm for local model if needed
+        if hasattr(config, 'use_local_llm') and config.use_local_llm:
+            if hasattr(config, 'local_llm_base'):
+                litellm.api_base = config.local_llm_base
+            litellm_model = f"openai/{config.local_model}"
+
+        try:
+            response = await asyncio.to_thread(
+                lambda: litellm.completion(
+                    model=litellm_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    tools=tools,
+                    tool_choice=tool_choice
+                )
+            )
+
+            if not response or not hasattr(response, "choices") or len(response.choices) == 0:
+                return {"content": "", "tool_calls": []}
+
+            message = response.choices[0].message
+
+            # Extract content and tool_calls
+            result = {
+                "content": message.content or "",
+                "tool_calls": []
+            }
+
+            # Extract tool_calls in normalized format
+            if hasattr(message, "tool_calls") and message.tool_calls:
+                for tc in message.tool_calls:
+                    result["tool_calls"].append({
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    })
+
+            return result
+
+        except Exception as e:
+            error_message = f"Error in generate_with_tools: {e}"
+            print(error_message)
+
+            # Check if this is a rate limit error
+            if "RateLimitError" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                retry_delay = self._extract_retry_delay(str(e))
+                self._rate_limited_until = time.time() + retry_delay
+                error_msg = f"LLM service rate limited. Please try again in {retry_delay} seconds."
+                raise LLMServiceError(error_msg, e, retry_after=retry_delay)
+            else:
                 raise LLMServiceError("LLM service is currently unavailable or overloaded", e)
 
 
