@@ -7,6 +7,7 @@ test.py
 .cache
 .env
 cache/*
+data/cache/*
 queues/*
 !queues/.gitkeep
 deploy/
@@ -81,3 +82,5 @@ next-env.d.ts
 *~
 .DS_Store
 Thumbs.db
+
+nul

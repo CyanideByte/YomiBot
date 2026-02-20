@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import time
@@ -7,7 +8,17 @@ from PIL import Image
 from config.config import config
 from litellm import RateLimitError
 from litellm import ServiceUnavailableError
+from litellm import NotFoundError
 from osrs.llm.model_manager import get_model_manager
+
+
+def _transform_tools_for_provider(tools: list, model: str) -> list:
+    """Transform tool schemas for providers that need different formats."""
+    import copy
+
+    # For most providers, our tool format works fine
+    return tools
+
 
 # Set provider API keys in environment before importing litellm
 if hasattr(config, 'gemini_api_key') and config.gemini_api_key:
@@ -62,33 +73,24 @@ class LLMService:
         if hasattr(config, 'use_local_llm') and config.use_local_llm:
             return f"openai/{config.local_model}"
 
-        # Normalize the model name - strip "gemini/" prefix if present
-        normalized_model = None
+        # If a specific model is requested, check if it's available
         if preferred_model:
-            normalized_model = preferred_model.replace("gemini/", "")
-
-        # If a specific model is requested, check if it's a Gemini model
-        if normalized_model and normalized_model.startswith("gemini-"):
-            # It's a specific Gemini model - check if it's available
             status = self.model_manager.get_status()
-            if normalized_model in status['available']:
+            if preferred_model in status['available']:
                 # Model is available, use it
-                return f"gemini/{normalized_model}"
+                return preferred_model
             else:
                 # Model is rate limited, fall through to use model manager
-                print(f"[MODEL FALLBACK] {normalized_model} is rate limited, using best available")
+                print(f"[MODEL FALLBACK] {preferred_model} is rate limited, using best available")
 
-        # For non-Gemini models, use as-is
-        if normalized_model and not normalized_model.startswith("gemini-"):
-            return normalized_model
-
-        # Use the model manager to get best available Gemini model
+        # Use the model manager to get best available model
         model = self.model_manager.get_available_model()
 
         if model is None:
             return None
 
-        return f"gemini/{model}"
+        # All models stored with provider prefix, use as-is
+        return model
     
     def _extract_retry_delay(self, error_message: str) -> int:
         """Extract retry delay from error message"""
@@ -120,11 +122,8 @@ class LLMService:
         if litellm_model is None:
             # All models are rate limited
             status = self.model_manager.get_status()
-            error_msg = "All Gemini models are currently rate limited. "
-            if status['rate_limited']:
-                oldest_entry = min(status['rate_limited'], key=lambda x: x['seconds_remaining'])
-                error_msg += f"Try again in {int(oldest_entry['seconds_remaining'])} seconds."
-            raise LLMServiceError(error_msg, retry_after=int(oldest_entry['seconds_remaining']))
+            error_msg = "All AI models are currently rate limited. Please try again later."
+            raise LLMServiceError(error_msg)
 
         # Log model usage
         model_name = litellm_model.replace("gemini/", "")
@@ -139,6 +138,19 @@ class LLMService:
                 )
             )
             if response and hasattr(response, "choices") and len(response.choices) > 0:
+                # Record usage (estimate tokens from response)
+                try:
+                    tokens_used = response.usage_metadata.get("total_tokens", 0)
+                    prompt_tokens = response.usage_metadata.get("prompt_tokens", 0)
+                    completion_tokens = response.usage_metadata.get("completion_tokens", 0)
+                    self.model_manager.usage_tracker.record_request(model_name, tokens_used)
+
+                    # Log token breakdown
+                    print(f"  [TOKENS] API response: {tokens_used:,} total (prompt: {prompt_tokens:,}, completion: {completion_tokens:,})")
+                except:
+                    # Fallback: just record the request without token count
+                    self.model_manager.usage_tracker.record_request(model_name, 0)
+
                 return response.choices[0].message.content
             return ""
         except RateLimitError as e:
@@ -182,11 +194,8 @@ class LLMService:
         if litellm_model is None:
             # All models are rate limited
             status = self.model_manager.get_status()
-            error_msg = "All Gemini models are currently rate limited. "
-            if status['rate_limited']:
-                oldest_entry = min(status['rate_limited'], key=lambda x: x['seconds_remaining'])
-                error_msg += f"Try again in {int(oldest_entry['seconds_remaining'])} seconds."
-            raise LLMServiceError(error_msg, retry_after=int(oldest_entry['seconds_remaining']))
+            error_msg = "All AI models are currently rate limited. Please try again later."
+            raise LLMServiceError(error_msg)
 
         # Log model usage
         model_name = litellm_model.replace("gemini/", "")
@@ -217,6 +226,18 @@ class LLMService:
                 )
             )
             if response and hasattr(response, "choices") and len(response.choices) > 0:
+                # Record usage and log token breakdown
+                try:
+                    tokens_used = response.usage_metadata.get("total_tokens", 0)
+                    prompt_tokens = response.usage_metadata.get("prompt_tokens", 0)
+                    completion_tokens = response.usage_metadata.get("completion_tokens", 0)
+                    self.model_manager.usage_tracker.record_request(model_name, tokens_used)
+
+                    # Log token breakdown
+                    print(f"  [TOKENS] API response: {tokens_used:,} total (prompt: {prompt_tokens:,}, completion: {completion_tokens:,})")
+                except:
+                    self.model_manager.usage_tracker.record_request(model_name, 0)
+
                 return response.choices[0].message.content
             return ""
         except RateLimitError as e:
@@ -274,14 +295,11 @@ class LLMService:
         if litellm_model is None:
             # All models are rate limited
             status = self.model_manager.get_status()
-            error_msg = "All Gemini models are currently rate limited. "
-            if status['rate_limited']:
-                oldest_entry = min(status['rate_limited'], key=lambda x: x['seconds_remaining'])
-                error_msg += f"Try again in {int(oldest_entry['seconds_remaining'])} seconds."
-            raise LLMServiceError(error_msg, retry_after=int(oldest_entry['seconds_remaining']))
+            error_msg = "All AI models are currently rate limited. Please try again later."
+            raise LLMServiceError(error_msg)
 
         # Log model usage
-        model_name = litellm_model.replace("gemini/", "")
+        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "")
         self.model_manager.log_model_usage(model_name)
 
         # Configure litellm for local model if needed
@@ -290,18 +308,33 @@ class LLMService:
                 litellm.api_base = config.local_llm_base
             litellm_model = f"openai/{config.local_model}"
 
+        # Transform tools for provider-specific formats
+        adjusted_tools = _transform_tools_for_provider(tools, litellm_model)
+
         try:
             response = await asyncio.to_thread(
                 lambda: litellm.completion(
                     model=litellm_model,
                     messages=[{"role": "user", "content": prompt}],
-                    tools=tools,
+                    tools=adjusted_tools,
                     tool_choice=tool_choice
                 )
             )
 
             if not response or not hasattr(response, "choices") or len(response.choices) == 0:
                 return {"content": "", "tool_calls": []}
+
+            # Record usage and log token breakdown
+            try:
+                tokens_used = response.usage_metadata.get("total_tokens", 0)
+                prompt_tokens = response.usage_metadata.get("prompt_tokens", 0)
+                completion_tokens = response.usage_metadata.get("completion_tokens", 0)
+                self.model_manager.usage_tracker.record_request(model_name, tokens_used)
+
+                # Log token breakdown for tool calls
+                print(f"  [TOKENS] API response: {tokens_used:,} total (prompt: {prompt_tokens:,}, completion: {completion_tokens:,})")
+            except:
+                self.model_manager.usage_tracker.record_request(model_name, 0)
 
             message = response.choices[0].message
 
@@ -315,11 +348,11 @@ class LLMService:
             if hasattr(message, "tool_calls") and message.tool_calls:
                 for tc in message.tool_calls:
                     result["tool_calls"].append({
-                        "id": tc.id,
-                        "type": tc.type,
+                        "id": tc["id"],
+                        "type": tc["type"],
                         "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
+                            "name": tc["function"]["name"],
+                            "arguments": tc["function"]["arguments"]
                         }
                     })
 
@@ -345,7 +378,19 @@ class LLMService:
                 return await self.generate_with_tools(prompt, tools, None, tool_choice)
             else:
                 raise LLMServiceError(f"Model {model_name} is currently unavailable", e, retry_after=300)
-        except Exception as e:
+        except (NotFoundError, Exception) as e:
+            # Check if this is a tool-related error
+            error_str = str(e)
+            if any(keyword in error_str for keyword in ["tool_choice", "tool_call", "tools[", "tools.", "tool use"]):
+                # Model doesn't support tools or has incompatible tool format
+                self.model_manager.mark_rate_limited(model_name)
+                if model is None:
+                    print(f"[SKIP] {model_name} has incompatible tool format, trying next model...")
+                    return await self.generate_with_tools(prompt, tools, None, tool_choice)
+                else:
+                    raise LLMServiceError(f"Model {model_name} has incompatible tool format", e)
+
+            # Other errors
             error_message = f"Error in generate_with_tools: {e}"
             print(error_message)
             raise LLMServiceError("LLM service is currently unavailable or overloaded", e)

@@ -8,6 +8,36 @@ from osrs.llm.source_management import ensure_all_sources_included, clean_url_pa
 from osrs.wiseoldman import format_player_data, format_metrics
 from osrs.wiseoldman import get_guild_members_data
 
+# Token counting
+try:
+    import tiktoken
+    encoding = tiktoken.get_encoding("cl100k_base")  # GPT-4 encoding (good approximation for Gemini)
+
+    def count_tokens(text: str) -> int:
+        """Count tokens in text using tiktoken."""
+        if not text:
+            return 0
+        return len(encoding.encode(text))
+
+    def count_messages_tokens(messages: list) -> int:
+        """Count tokens in a list of messages."""
+        total = 0
+        for msg in messages:
+            total += count_tokens(msg.get("content", ""))
+            total += count_tokens(msg.get("role", ""))
+        return total
+except ImportError:
+    # Fallback if tiktoken not available
+    def count_tokens(text: str) -> int:
+        """Rough token count (1 token ≈ 4 chars)."""
+        if not text:
+            return 0
+        return len(text) // 4
+
+    def count_messages_tokens(messages: list) -> int:
+        """Rough token count for messages."""
+        return sum(count_tokens(str(msg)) for msg in messages)
+
 # System prompt for Gemini
 # Unified system prompt for both player data and wiki information
 UNIFIED_SYSTEM_PROMPT = """
@@ -113,13 +143,20 @@ async def process_unified_query(
         # Single parallel call that identifies EVERYTHING
         print(f"  Calling unified_identification for: '{user_query[:80]}...'")
 
-        identified_players, wiki_pages, is_all_members, metrics, search_queries = \
-            await identify_and_fetch_all_optimized(
-                user_query=user_query,
-                guild_members=guild_member_names,
-                requester_name=requester_name,
-                status_message=status_message
-            )
+        identification_result = await identify_and_fetch_all_optimized(
+            user_query=user_query,
+            guild_members=guild_member_names,
+            requester_name=requester_name,
+            status_message=status_message
+        )
+
+        # Extract results and timing
+        identified_players = identification_result[0]
+        wiki_pages = identification_result[1]
+        is_all_members = identification_result[2]
+        metrics = identification_result[3]
+        search_queries = identification_result[4]
+        identification_time = identification_result[5] if len(identification_result) > 5 else 0.0
 
         print(f"  Results: {len(identified_players)} players, {len(wiki_pages)} wiki pages, "
               f"{len(metrics)} metrics, {len(search_queries)} search queries, all_members={is_all_members}")
@@ -177,7 +214,13 @@ async def process_unified_query(
                     await status_message.edit(content="Generating response...")
 
                 print("[API CALL: LITELLM] metrics data generation")
+                prompt_tokens = count_tokens(prompt)
+                print(f"  [TOKENS] Prompt: {prompt_tokens:,} tokens")
+                print(f"  [TOKENS] Metrics data: {count_tokens(str(metrics_data)):,} tokens")
                 response = await llm_service.generate_text(prompt)
+                response_tokens = count_tokens(response) if response else 0
+                print(f"  [TOKENS] Response: {response_tokens:,} tokens")
+                print(f"  [TOKENS] Total: {prompt_tokens + response_tokens:,} tokens")
 
                 # Build sources - only if we have metrics data
                 if metrics_data:
@@ -210,6 +253,7 @@ async def process_unified_query(
             # Specific players case
             elif identified_players:
                 print(f"  Fetching data for {len(identified_players)} players...")
+                player_fetch_start = time.perf_counter()
                 async with aiohttp.ClientSession() as session:
                     tasks = []
                     for player_name in identified_players:
@@ -234,12 +278,18 @@ async def process_unified_query(
                                     'url': player_url
                                 })
 
-                print(f"  Successfully fetched {len(player_data_list)} players")
+                player_fetch_time = time.perf_counter() - player_fetch_start
+                print(f"  Successfully fetched {len(player_data_list)} players in {player_fetch_time:.2f}s")
 
         # Wiki data (only if not player-only)
         wiki_content = ""
         wiki_sources = []
         web_sources = []
+
+        # Track content sizes for logging
+        initial_wiki_content = ""
+        additional_wiki_content = ""
+        web_search_content = ""
 
         if wiki_pages and not player_data_list:
             if status_message:
@@ -252,7 +302,11 @@ async def process_unified_query(
             from osrs.search import search_web, format_search_results
 
             # Fetch wiki content
+            wiki_fetch_start = time.perf_counter()
             wiki_content, redirects, rejected_pages = await fetch_osrs_wiki_pages(wiki_pages)
+            wiki_fetch_time = time.perf_counter() - wiki_fetch_start
+            initial_wiki_content = wiki_content  # Track initial wiki content
+            print(f"  Fetched wiki pages in {wiki_fetch_time:.2f}s")
 
             # Build wiki sources
             for page in wiki_pages:
@@ -276,6 +330,7 @@ async def process_unified_query(
                 print(f"  Performing {len(search_queries)} web searches...")
                 for query in search_queries:
                     print(f"    - Query: '{query}'")
+                web_search_start = time.perf_counter()
                 try:
                     all_search_results = []
                     for search_query in search_queries:
@@ -291,6 +346,7 @@ async def process_unified_query(
                             if not any(existing.lower() == page_name.lower() for existing in [s.get('name', '') for s in wiki_sources]):
                                 additional_content, add_redirects, add_rejected = await fetch_osrs_wiki_pages([page_name])
                                 if additional_content and page_name not in add_rejected:
+                                    additional_wiki_content += "\n" + additional_content  # Track additional wiki
                                     wiki_content += "\n" + additional_content
                                     redirected_page = add_redirects.get(page_name, page_name)
                                     final_page_name = redirected_page.replace(' ', '_')
@@ -308,13 +364,18 @@ async def process_unified_query(
 
                     if web_sources:
                         web_content = format_search_results(all_search_results)
+                        web_search_content = web_content  # Track web search content
                         if wiki_content:
                             wiki_content += "\n\n" + web_content
                         else:
                             wiki_content = web_content
 
+                    web_search_time = time.perf_counter() - web_search_start
+                    print(f"  Web search completed in {web_search_time:.2f}s")
+
                 except Exception as e:
-                    print(f"    Web search error: {e}")
+                    web_search_time = time.perf_counter() - web_search_start
+                    print(f"    Web search error: {e} (after {web_search_time:.2f}s)")
 
         # ========================================================================
         # STEP 4: Generate final response
@@ -379,7 +440,40 @@ async def process_unified_query(
             await status_message.edit(content="Generating response...")
 
         print("[API CALL: LITELLM] final response generation")
+        generation_start = time.perf_counter()
+
+        prompt_tokens = count_tokens(prompt)
+        print(f"  [TOKENS] Prompt: {prompt_tokens:,} tokens")
+
+        # Log content sizes with breakdown
+        if initial_wiki_content:
+            wiki_tokens = count_tokens(initial_wiki_content)
+            print(f"  [TOKENS] Initial wiki pages: {wiki_tokens:,} tokens")
+        if additional_wiki_content:
+            add_tokens = count_tokens(additional_wiki_content)
+            print(f"  [TOKENS] Additional wiki (from web): {add_tokens:,} tokens")
+        if web_search_content:
+            web_tokens = count_tokens(web_search_content)
+            print(f"  [TOKENS] Web search results: {web_tokens:,} tokens")
+        if player_data_list:
+            player_tokens = count_tokens(str(player_data_list))
+            print(f"  [TOKENS] Player data: {player_tokens:,} tokens")
+
+        # Show total context
+        total_context = (
+            (len(initial_wiki_content) if initial_wiki_content else 0) +
+            (len(additional_wiki_content) if additional_wiki_content else 0) +
+            (len(web_search_content) if web_search_content else 0) +
+            (len(str(player_data_list)) if player_data_list else 0)
+        )
+        print(f"  [TOKENS] Total context: {count_tokens(str(total_context)):,} tokens (estimated)")
+
         response = await llm_service.generate_text(prompt)
+        generation_time = time.perf_counter() - generation_start
+        response_tokens = count_tokens(response) if response else 0
+        print(f"  [TOKENS] Response: {response_tokens:,} tokens")
+        print(f"  [TIMING] Generation completed in {generation_time:.2f}s")
+        print(f"  [TOKENS] Total: {prompt_tokens + response_tokens:,} tokens")
 
         if response is None:
             return "Error: Failed to generate response"
@@ -429,8 +523,20 @@ async def process_unified_query(
         # Remove empty Sources sections (LLM might generate "Sources:" with nothing after)
         response = re.sub(r'\n\nSources:\s*$', '', response.strip())
 
-        # Log total time
+        # Log timing breakdown
         total_time = time.time() - start_time
+        print(f"\n[TIMING BREAKDOWN]")
+        print(f"  Total query time: {total_time:.2f}s")
+        print(f"  - Unified identification: {identification_time:.2f}s ({identification_time/total_time*100:.1f}% of total)")
+        if 'player_fetch_time' in locals():
+            print(f"  - Player data fetching: {player_fetch_time:.2f}s ({player_fetch_time/total_time*100:.1f}%)")
+        if 'wiki_fetch_time' in locals():
+            print(f"  - Wiki page fetching: {wiki_fetch_time:.2f}s ({wiki_fetch_time/total_time*100:.1f}%)")
+        if 'web_search_time' in locals():
+            print(f"  - Web search: {web_search_time:.2f}s ({web_search_time/total_time*100:.1f}%)")
+        if 'generation_time' in locals():
+            print(f"  - Final LLM generation: {generation_time:.2f}s ({generation_time/total_time*100:.1f}%)")
+
         print(f"\n[OPTIMIZED WORKFLOW] Completed in {total_time:.2f} seconds")
         print(f"                      (vs ~8-10s with old workflow)")
         print("=" * 70)
@@ -448,7 +554,7 @@ async def process_unified_query(
         print(f"[OPTIMIZED WORKFLOW] LLM service error: {e}")
         if status_message:
             if hasattr(e, 'retry_after') and e.retry_after:
-                await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again later.")
             else:
                 await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
         raise
@@ -514,8 +620,14 @@ async def roast_player(player_data, status_message=None):
 
     try:
         print("[API CALL: LITELLM] player roast generation")
+        prompt_tokens = count_tokens(prompt)
+        print(f"  [TOKENS] Prompt: {prompt_tokens:,} tokens")
+        print(f"  [TOKENS] Player context: {count_tokens(player_context):,} tokens")
         try:
             response = await llm_service.generate_text(prompt)
+            response_tokens = count_tokens(response) if response else 0
+            print(f"  [TOKENS] Response: {response_tokens:,} tokens")
+            print(f"  [TOKENS] Total: {prompt_tokens + response_tokens:,} tokens")
             if response is None:
                 return None
             response = response.strip()
@@ -525,7 +637,7 @@ async def roast_player(player_data, status_message=None):
             # Update status message if available
             if status_message:
                 if hasattr(e, 'retry_after') and e.retry_after:
-                    await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                    await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again later.")
                 else:
                     await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
             # Re-raise to be handled by the command - this will exit the function immediately

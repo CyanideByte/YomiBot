@@ -18,6 +18,23 @@ from typing import Dict, List, Tuple
 from osrs.llm.llm_service import llm_service, LLMServiceError
 from osrs.llm.tools import UNIFIED_IDENTIFICATION_TOOL
 
+# Token counting (reuse from query_processing)
+try:
+    import tiktoken
+    encoding = tiktoken.get_encoding("cl100k_base")
+
+    def count_tokens(text: str) -> int:
+        """Count tokens in text using tiktoken."""
+        if not text:
+            return 0
+        return len(encoding.encode(text))
+except ImportError:
+    def count_tokens(text: str) -> int:
+        """Rough token count (1 token ≈ 4 chars)."""
+        if not text:
+            return 0
+        return len(text) // 4
+
 
 def log_tool_call(title: str, details: str = ""):
     """Print a formatted log message for tool calling."""
@@ -98,6 +115,11 @@ Analyze this query and use the unified_identification function now.
             tool_choice="required"
         )
 
+        # Log token usage
+        prompt_tokens = count_tokens(prompt)
+        print(f"  [TOKENS] Identification prompt: {prompt_tokens:,} tokens")
+        # Note: we don't have access to response tokens here for tool calls
+
         # Check for tool calls
         if not result.get("tool_calls"):
             log_tool_call("ERROR", "No tool calls returned!")
@@ -144,7 +166,8 @@ Analyze this query and use the unified_identification function now.
             "mentioned_players": mentioned_players,
             "wiki_pages": args.get("wiki_pages", []),
             "metrics": metrics,
-            "search_queries": args.get("search_queries", [])
+            "search_queries": args.get("search_queries", []),
+            "elapsed_time": elapsed  # Add timing info
         }
 
     except LLMServiceError as e:
@@ -176,7 +199,7 @@ async def identify_and_fetch_all_optimized(
     guild_members: List[str],
     requester_name: str = None,
     status_message = None
-) -> Tuple[List, List, bool, List, bool]:
+) -> Tuple[List, List, bool, List, bool, float]:
     """
     Optimized version that combines multiple identification steps.
 
@@ -188,7 +211,7 @@ async def identify_and_fetch_all_optimized(
     - is_wiki_only_query
 
     Returns:
-        (player_names, wiki_pages, is_all_members, metrics, search_queries)
+        (player_names, wiki_pages, is_all_members, metrics, search_queries, elapsed_time)
     """
     result = await unified_identification(
         user_query=user_query,
@@ -210,5 +233,6 @@ async def identify_and_fetch_all_optimized(
         result["wiki_pages"],
         is_all_members,
         result["metrics"],
-        result["search_queries"]
+        result["search_queries"],
+        result.get("elapsed_time", 0.0)
     )

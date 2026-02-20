@@ -71,7 +71,7 @@ def register_commands(bot):
         except LLMServiceError as e:
             # If there was an LLM service error, inform the user that the service is unavailable
             if hasattr(e, 'retry_after') and e.retry_after:
-                await processing_msg.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                await processing_msg.edit(content=f"Sorry, the AI service is currently rate limited. Please try again later.")
             else:
                 await processing_msg.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
             return
@@ -149,7 +149,7 @@ def register_commands(bot):
         except LLMServiceError as e:
             # If there was an LLM service error, inform the user that the service is unavailable
             if hasattr(e, 'retry_after') and e.retry_after:
-                await processing_msg.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                await processing_msg.edit(content=f"Sorry, the AI service is currently rate limited. Please try again later.")
             else:
                 await processing_msg.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
             return

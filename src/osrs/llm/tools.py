@@ -53,7 +53,7 @@ IDENTIFY_WIKI_PAGES_TOOL = {
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "pattern": "^[A-Za-z0-9_()]{1,40}$"
+                        "pattern": "^[A-Za-z0-9_()/]{1,60}$"
                     },
                     "description": "List of wiki page names using underscores (e.g., Dragon_scimitar). Empty array if no pages found.",
                     "maxItems": 10
@@ -153,7 +153,7 @@ SUGGEST_FOLLOWUP_WIKI_PAGES_TOOL = {
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "pattern": "^[A-Za-z0-9_()]{1,40}$"
+                        "pattern": "^[A-Za-z0-9_()/]{1,60}$"
                     },
                     "description": "List of additional wiki page names to fetch (max 5). Empty array if no additional pages needed.",
                     "maxItems": 5
@@ -205,7 +205,7 @@ UNIFIED_IDENTIFICATION_TOOL = {
                 },
                 "wiki_pages": {
                     "type": "array",
-                    "items": {"type": "string", "pattern": "^[A-Za-z0-9_()]{1,40}$"},
+                    "items": {"type": "string", "pattern": "^[A-Za-z0-9_()/]{1,60}$"},
                     "description": "List of relevant OSRS wiki page names using underscores (e.g., Dragon_scimitar, Abyssal_demon). Maximum 10 pages. CRITICAL: For bosses, NPCs, and activities, ALWAYS include the /Strategies subpage (e.g., if including Giant_Mole, also include Giant_Mole/Strategies; if including Chambers_of_Xeric, also include Chambers_of_Xeric/Strategies). For skills, ALWAYS include the /Training subpage (e.g., if including Thieving, also include Thieving/Training; if including Fishing, also include Fishing/Training).",
                     "maxItems": 10
                 },
