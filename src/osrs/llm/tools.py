@@ -6,7 +6,7 @@ All tools use OpenAI-compatible format, which works with both:
 - Local models (LM Studio, Ollama, etc.) via litellm
 """
 
-# Available metrics for OSRS (same as in identification.py)
+# Available metrics for OSRS
 SKILL_METRICS = [
     'overall', 'attack', 'defence', 'strength', 'hitpoints', 'ranged', 'prayer', 'magic',
     'cooking', 'woodcutting', 'fletching', 'fishing', 'firemaking', 'crafting', 'smithing',
@@ -188,6 +188,44 @@ GENERATE_SEARCH_TERM_TOOL = {
     }
 }
 
+# Tool: Unified Identification (OPTIMIZED - combines multiple tools into one parallel call)
+UNIFIED_IDENTIFICATION_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "unified_identification",
+        "description": "Comprehensive query analysis that identifies all needed information in parallel. Analyzes the query to determine: which clan members are mentioned (list their names), which wiki pages are relevant, which OSRS metrics to fetch for the entire clan, and what additional web searches are needed beyond the wiki.\n\nIMPORTANT ABBREVIATIONS: cox=chambers_of_xeric, cm=chambers_of_xeric_challenge_mode, tob=theatre_of_blood, hm tob/hard tob=theatre_of_blood_hard_mode, toa=tombs_of_amascut, expert toa=tombs_of_amascut_expert, quiver/colosseum=sol_heredit (boss KC), infernal cape=tzkal_zuk. Sailing is a released skill.\n\nSCOPE RULES:\n1) Specific players mentioned? List their names in mentioned_players (max 10). Player data fetch includes ALL their stats, so leave metrics empty.\n2) Clan-wide query asking 'who has X' or 'clan total for X'? Leave mentioned_players EMPTY and populate metrics to fetch clan-wide stats for that boss/metric.\n3) Wiki-only (no players at all)? Leave both mentioned_players and metrics empty.\n\nFor search_queries: only include if wiki pages aren't enough to answer the query (e.g., recent updates, niche topics, current prices).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "mentioned_players": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of specific clan member names mentioned (max 10). Include requester_name if user asks about themselves (I/me/my). Leave EMPTY for clan-wide queries or wiki-only queries.",
+                    "maxItems": 10
+                },
+                "wiki_pages": {
+                    "type": "array",
+                    "items": {"type": "string", "pattern": "^[A-Za-z0-9_()]{1,40}$"},
+                    "description": "List of relevant OSRS wiki page names using underscores (e.g., Dragon_scimitar, Abyssal_demon). Maximum 10 pages.",
+                    "maxItems": 10
+                },
+                "metrics": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ALL_METRICS},
+                    "description": "List of metrics to fetch for the ENTIRE CLAN (clan-wide stats). Only populate when no specific players are mentioned and clan-wide stats are needed (e.g., 'who has X' queries). Use exact metric names: cox=chambers_of_xeric, cm=chambers_of_xeric_challenge_mode, tob=theatre_of_blood, hm tob=theatre_of_blood_hard_mode, toa=tombs_of_amascut, expert toa=tombs_of_amascut_expert, quiver/colosseum=sol_heredit (boss KC), infernal cape=tzkal_zuk. Leave EMPTY for specific player queries (their data includes all stats) and wiki-only queries."
+                },
+                "search_queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of web search queries to run for additional information beyond the wiki pages (max 3). Each query should be 2-5 words focused on OSRS content. Leave EMPTY if wiki pages are sufficient to answer the query.",
+                    "maxItems": 3
+                }
+            },
+            "required": ["mentioned_players", "wiki_pages", "metrics", "search_queries"]
+        }
+    }
+}
+
 
 # All tools combined
 ALL_TOOLS = [
@@ -197,6 +235,7 @@ ALL_TOOLS = [
     IDENTIFY_METRICS_TOOL,
     SUGGEST_FOLLOWUP_WIKI_PAGES_TOOL,
     GENERATE_SEARCH_TERM_TOOL,
+    UNIFIED_IDENTIFICATION_TOOL,  # New optimized tool
 ]
 
 

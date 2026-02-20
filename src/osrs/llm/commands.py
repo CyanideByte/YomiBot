@@ -8,7 +8,7 @@ from osrs.wiseoldman import (
     fetch_player_details, fetch_player_details_by_username,
     get_guild_members_data, get_player_cache_path
 )
-from osrs.llm.identification import identify_mentioned_players
+from osrs.llm.identification_optimized import unified_identification
 from osrs.llm.llm_service import LLMServiceError
 
 def register_commands(bot):
@@ -110,17 +110,23 @@ def register_commands(bot):
                     target_player = exact_match['player']['displayName']
                     print("Exact match found, skipping identification:", target_player)
                 else:
-                    # Try to identify players from the query
-                    identified_players, is_all_members = await identify_mentioned_players(user_query, guild_member_names, ctx.author.display_name)
-                    if is_all_members:
+                    # Try to identify players from the query using unified identification
+                    result = await unified_identification(
+                        user_query=user_query,
+                        guild_members=guild_member_names,
+                        requester_name=ctx.author.display_name
+                    )
+
+                    # Extract player information from result
+                    if result["player_scope"] == "all_members":
                         await processing_msg.edit(content="I can't roast everyone at once! Pick someone specific to roast.")
                         return
-                    elif not identified_players:
-                        # If no players found in guild, try the user query directly
-                        target_player = user_query
-                    else:
+                    elif result["player_scope"] == "specific_members":
                         # Use the first identified player
-                        target_player = identified_players[0]
+                        target_player = result["mentioned_players"][0] if result["mentioned_players"] else user_query
+                    else:
+                        # No players found, try the user query directly
+                        target_player = user_query
 
             await processing_msg.edit(content=f"Preparing a savage roast for {target_player}...")
             

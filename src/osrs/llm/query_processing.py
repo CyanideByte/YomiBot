@@ -3,16 +3,10 @@ import time
 import re
 from config.config import config
 from osrs.llm.llm_service import llm_service, LLMServiceError
-from osrs.llm.identification import (
-    identify_and_fetch_players,
-    identify_and_fetch_wiki_pages,
-    identify_and_fetch_metrics,
-    is_player_only_query,
-    is_prohibited_query,
-    is_wiki_only_query
-)
+from osrs.llm.identification_optimized import identify_and_fetch_all_optimized
 from osrs.llm.source_management import ensure_all_sources_included, clean_url_patterns
 from osrs.wiseoldman import format_player_data, format_metrics
+from osrs.wiseoldman import get_guild_members_data
 
 # System prompt for Gemini
 # Unified system prompt for both player data and wiki information
@@ -86,190 +80,244 @@ async def process_unified_query(
     think: bool = False
 ) -> str:
     """
-    Unified function to process queries using both player data and wiki/web information
-    
-    Args:
-        user_query: The user's query text
-        user_id: Optional user ID for tracking interactions
-        image_urls: Optional list of image URLs to analyze
-        mentioned_players: Optional list of already identified player names
-        requester_name: Optional name of the user making the request
-        
-    Returns:
-        Formatted response text
+    OPTIMIZED version of process_unified_query using parallel tool calling.
+
+    Reduces LLM calls from 4-5 to just 2:
+    1. Single parallel identification call (players, wiki pages, metrics, classification)
+    2. Final response generation
+
+    Enable with: USE_OPTIMIZED_WORKFLOW=true in .env or config.use_optimized_workflow = True
     """
-    if not config.gemini_api_key:
-        return "Sorry, the OSRS assistant is not available because the Gemini API key is not set."
-    
+    print("\n" + "=" * 70)
+    print("[OPTIMIZED WORKFLOW] Using parallel tool calling")
+    print("=" * 70)
+
+    if not config.gemini_api_key and not config.use_local_llm:
+        return "Sorry, the OSRS assistant is not available because no LLM is configured."
+
+    start_time = time.time()
+
     try:
-        # Start performance tracking
-        start_time = time.time()
-        
-        # First, check if query is about prohibited topics
-        is_prohibited = await is_prohibited_query(user_query)
-        if is_prohibited:
-            # Generate security explanation using Gemini
-            prompt = f"""
-            The user asked: "{user_query}"
-            
-            You must write a response that explains the SPECIFIC security risks of their query. DO NOT give a generic response about all prohibited topics.
-
-            For RWT (gold/account/services):
-            - Focus on account theft/recovery scams
-            - Permanent bans from Jagex
-            - Credit card fraud risks
-            
-            For botting clients:
-            - Focus on malware/keyloggers
-            - Account hijacking
-            - Resource theft
-            
-            For unofficial clients:
-            - Focus on password stealing
-            - Bank PIN capture
-            - Authentication bypass risks
-            
-            For private servers:
-            - Focus on malware from downloads
-            - Account database theft
-            - Reused password risks
-
-            Write a focused response ONLY about the specific topic they asked about. Keep it under 500 characters.
-            """
-
-            print("[API CALL: LLM SERVICE] prohibited query explanation")
-            try:
-                explanation = await llm_service.generate_text(prompt)
-                if not explanation:
-                    explanation = "This topic poses serious security risks to your RuneScape account and computer. For your safety, please only use the official RuneScape client and avoid prohibited activities like RWT, botting, and private servers."
-                if status_message:
-                    await status_message.edit(content=explanation)
-                return explanation
-            except LLMServiceError as e:
-                # Update status message before re-raising
-                if status_message:
-                    if hasattr(e, 'retry_after') and e.retry_after:
-                        await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
-                    else:
-                        await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
-                # Re-raise to be handled by the command
-                raise
-
-        # If not prohibited, proceed with player data
+        # ========================================================================
+        # STEP 1: UNIFIED IDENTIFICATION (single LLM call with parallel tools)
+        # ========================================================================
         if status_message:
-            await status_message.edit(content="Finding players...")
-            
-        player_task = identify_and_fetch_players(user_query, requester_name=requester_name, status_message=status_message)
-        player_data_list, player_sources, is_all_members = await player_task
-        
-        # If query is about all members, fetch metrics data
-        metrics_data = {}
-        if is_all_members:
+            await status_message.edit(content="Analyzing query...")
+
+        print("\n[STEP 1/2] Unified Identification")
+
+        # Get guild members
+        guild_members_data = get_guild_members_data()
+        guild_member_names = [member['player']['displayName'] for member in guild_members_data]
+
+        # Single parallel call that identifies EVERYTHING
+        print(f"  Calling unified_identification for: '{user_query[:80]}...'")
+
+        identified_players, wiki_pages, is_all_members, metrics, search_queries = \
+            await identify_and_fetch_all_optimized(
+                user_query=user_query,
+                guild_members=guild_member_names,
+                requester_name=requester_name,
+                status_message=status_message
+            )
+
+        print(f"  Results: {len(identified_players)} players, {len(wiki_pages)} wiki pages, "
+              f"{len(metrics)} metrics, {len(search_queries)} search queries, all_members={is_all_members}")
+
+        # ========================================================================
+        # STEP 2: Fetch data and generate response
+        # ========================================================================
+        print("\n[STEP 2/2] Fetching data and generating response")
+
+        # Player data
+        player_data_list = []
+        player_sources = []
+
+        if identified_players or is_all_members:
             if status_message:
-                await status_message.edit(content="Fetching clan metrics...")
-            
-            metrics_task = identify_and_fetch_metrics(user_query, status_message=status_message)
-            metrics_data = await metrics_task
-            
-            # Format metrics data for display
-            metrics_context = format_metrics(metrics_data)
-            
-            # Use metrics data to generate response
-            
-            prompt = f"""
-            {UNIFIED_SYSTEM_PROMPT}
-            
-            User Query: {user_query}
-            
-            Clan Metrics Data:
-            {metrics_context}
-            
-            This query is about clan-wide metrics. Use the provided metrics data to answer the query.
-            Do not speculate about information not present in the metrics data.
-            {FORMATTING_RULES}
-            """
-            
-            try:
+                await status_message.edit(content="Fetching player data...")
+
+            # Import here to avoid circular dependency
+            from osrs.wiseoldman import fetch_player_details
+            import aiohttp
+
+            # Fetch player data (reuse existing logic but with pre-identified players)
+            if is_all_members:
+                # All members case - fetch metrics instead
+                if status_message:
+                    await status_message.edit(content="Fetching clan metrics...")
+
+                print("  Fetching metrics for all clan members...")
+                metrics_data = {}
+                for metric in metrics:
+                    try:
+                        from osrs.wiseoldman import fetch_metric
+                        scoreboard = fetch_metric(metric)
+                        metrics_data[metric] = scoreboard
+                    except Exception as e:
+                        print(f"    Error fetching {metric}: {e}")
+
+                # Generate metrics response
+                metrics_context = format_metrics(metrics_data)
+
+                prompt = f"""
+                {UNIFIED_SYSTEM_PROMPT}
+
+                User Query: {user_query}
+
+                Clan Metrics Data:
+                {metrics_context}
+
+                This query is about clan-wide metrics. Use the provided metrics data to answer the query.
+                Do not speculate about information not present in the metrics data.
+                {FORMATTING_RULES}
+                """
+
                 if status_message:
                     await status_message.edit(content="Generating response...")
-                    
+
                 print("[API CALL: LITELLM] metrics data generation")
-                try:
-                    response = await llm_service.generate_text(prompt)
-                    if response is None:
-                        raise ValueError("Gemini model returned None")
-                    response = response.strip()
-                    if not response:
-                        raise ValueError("Gemini model returned whitespace-only response")
-                except LLMServiceError as e:
-                    # Update status message before re-raising
-                    if status_message:
-                        if hasattr(e, 'retry_after') and e.retry_after:
-                            await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
-                        else:
-                            await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
-                    # Re-raise to be handled by the command
-                    raise
-                
-                # Build sources for each metric
+                response = await llm_service.generate_text(prompt)
+
+                # Build sources
                 sources_section = "\n\nSources:"
                 for metric_name in metrics_data.keys():
                     source_url = f"https://wiseoldman.net/groups/3773/hiscores?metric={metric_name}"
                     sources_section += f"\n- <{source_url}>"
 
-                # Ensure response has "Sources:" section with all metric URLs
                 if "Sources:" not in response:
                     response += sources_section
                 else:
-                    # Replace existing sources section with our metric-specific sources
                     response = re.sub(r'\n\nSources:.*$', sources_section, response, flags=re.DOTALL)
-                
+
                 # Clean URLs
                 for metric_name in metrics_data.keys():
                     source_url = f"https://wiseoldman.net/groups/3773/hiscores?metric={metric_name}"
                     response = clean_url_patterns(response, source_url)
-                
-                # Send long response in chunks if needed
+
                 if status_message and len(response) > 1900:
                     await send_long_response(status_message, response)
                 else:
                     if status_message:
                         await status_message.edit(content=response)
-                    
+
                 return response
-                
-            except Exception as e:
-                print(f"Failed to generate metrics response: {e}")
-                return f"Error: Failed to generate metrics response - {str(e)}"
-        
-        # Determine if this is a player-only query
-        is_player_only = False
-        if player_data_list:
-            is_player_only = True # If any players were identified, always skip wiki/web search
-            # if status_message:
-            #     await status_message.edit(content="Analyzing query...")
-                
-            # is_player_only = await is_player_only_query(user_query, player_data_list)
-            # print(f"Query determined to be player-only: {is_player_only}")
-        
-        # Only fetch wiki/web content if this is not a player-only query
-        if not is_player_only:
+
+            # Specific players case
+            elif identified_players:
+                print(f"  Fetching data for {len(identified_players)} players...")
+                async with aiohttp.ClientSession() as session:
+                    tasks = []
+                    for player_name in identified_players:
+                        # Find matching member data
+                        member_data = next(
+                            (m['player'] for m in guild_members_data if m['player']['displayName'] == player_name),
+                            None
+                        )
+                        if member_data:
+                            tasks.append(fetch_player_details(member_data, session))
+
+                    if tasks:
+                        player_data_results = await asyncio.gather(*tasks)
+
+                        for player_name, player_data in zip(identified_players, player_data_results):
+                            if player_data:
+                                player_data_list.append(player_data)
+                                player_url = f"https://wiseoldman.net/players/{player_name.lower().replace(' ', '_')}"
+                                player_sources.append({
+                                    'type': 'wiseoldman',
+                                    'name': player_name,
+                                    'url': player_url
+                                })
+
+                print(f"  Successfully fetched {len(player_data_list)} players")
+
+        # Wiki data (only if not player-only)
+        wiki_content = ""
+        wiki_sources = []
+        web_sources = []
+
+        if wiki_pages and not player_data_list:
             if status_message:
-                await status_message.edit(content="Searching wiki...")
-            wiki_task = identify_and_fetch_wiki_pages(user_query, image_urls, status_message)
-            wiki_content, updated_page_names, wiki_sources, web_sources = await wiki_task
-        else:
-            print("Skipping wiki and web searches for player-only query")
-            wiki_content = ""
-            updated_page_names = []
-            wiki_sources = []
-            web_sources = []
-        
-        # Log performance for data fetching
-        data_fetch_time = time.time() - start_time
-        print(f"Data fetching completed in {data_fetch_time:.2f} seconds")
-        
-        # Format player data and track valid players for sources
+                await status_message.edit(content="Fetching wiki data...")
+
+            print(f"  Fetching {len(wiki_pages)} wiki pages: {wiki_pages}")
+
+            # Import wiki fetch function
+            from osrs.wiki import fetch_osrs_wiki_pages
+            from osrs.search import search_web, format_search_results
+
+            # Fetch wiki content
+            wiki_content, redirects, rejected_pages = await fetch_osrs_wiki_pages(wiki_pages)
+
+            # Build wiki sources
+            for page in wiki_pages:
+                normalized_page = page.replace(' ', '_')
+                redirected_page = redirects.get(normalized_page, normalized_page)
+                final_page_name = redirected_page.replace(' ', '_')
+
+                if final_page_name not in rejected_pages:
+                    wiki_url = f"https://oldschool.runescape.wiki/w/{final_page_name}"
+                    wiki_sources.append({
+                        'type': 'wiki',
+                        'name': final_page_name,
+                        'url': wiki_url
+                    })
+
+            # Web search for additional queries
+            if search_queries:
+                if status_message:
+                    await status_message.edit(content="Searching the web...")
+
+                print(f"  Performing {len(search_queries)} web searches...")
+                for query in search_queries:
+                    print(f"    - Query: '{query}'")
+                try:
+                    all_search_results = []
+                    for search_query in search_queries:
+                        # Search the web directly with the query from unified_identification
+                        search_results = await search_web(search_query)
+                        all_search_results.extend(search_results)
+
+                    for result in all_search_results:
+                        url = result.get('url', '')
+
+                        if "oldschool.runescape.wiki/w/" in url:
+                            page_name = url.split("/w/")[-1].replace(' ', '_')
+                            if not any(existing.lower() == page_name.lower() for existing in [s.get('name', '') for s in wiki_sources]):
+                                additional_content, add_redirects, add_rejected = await fetch_osrs_wiki_pages([page_name])
+                                if additional_content and page_name not in add_rejected:
+                                    wiki_content += "\n" + additional_content
+                                    redirected_page = add_redirects.get(page_name, page_name)
+                                    final_page_name = redirected_page.replace(' ', '_')
+                                    wiki_sources.append({
+                                        'type': 'wiki',
+                                        'name': final_page_name,
+                                        'url': f"https://oldschool.runescape.wiki/w/{final_page_name}"
+                                    })
+                        else:
+                            web_sources.append({
+                                'type': 'web',
+                                'title': result.get('title', 'Web Source'),
+                                'url': url
+                            })
+
+                    if web_sources:
+                        web_content = format_search_results(all_search_results)
+                        if wiki_content:
+                            wiki_content += "\n\n" + web_content
+                        else:
+                            wiki_content = web_content
+
+                except Exception as e:
+                    print(f"    Web search error: {e}")
+
+        # ========================================================================
+        # STEP 4: Generate final response
+        # ========================================================================
+        print("\n[FINAL RESPONSE] Generating response...")
+
+        # Format player data
         player_context = ""
         valid_players = []
         if player_data_list:
@@ -281,270 +329,128 @@ async def process_unified_query(
                     player_context += formatted_data
                     player_context += "\n\n"
                     valid_players.append(player_data)
-            print(f"Formatted data for {len(valid_players)} out of {len(player_data_list)} players")
-        
-        # Use text-based approach for response formatting
-        
-        # Construct the prompt based on available data
-        if is_player_only:
-            # For player-only queries, use a more focused prompt
+
+        # Build prompt
+        if player_data_list:
+            # Player-only query
             prompt = f"""
             You are an Old School RuneScape (OSRS) expert assistant. Your task is to answer questions about OSRS players using the provided player data.
-            
+
             User Query: {user_query}
-            
+
             Player Data:
             {player_context}
-            
+
             This query can be answered using ONLY the player data provided. Do not speculate about information not present in the player data.
             {FORMATTING_RULES}
             """
         else:
-            # For queries that need both data sources, use the unified prompt
+            # Mixed or wiki-only query
             prompt = f"""
             {UNIFIED_SYSTEM_PROMPT}
 
             Today's date is: {time.strftime('%A %B %d, %Y')}
-            
+
             User Query: {user_query}
             """
-            
-            # Add player data if available
+
             if player_context:
                 prompt += f"""
-                
+
                 Player Data:
                 {player_context}
                 """
-            
-            # Add wiki/web content if available
+
             if wiki_content:
                 prompt += f"""
-                
+
                 OSRS Wiki and Web Information:
                 {wiki_content}
                 """
-            
+
             prompt += FORMATTING_RULES
-        
-        # Generate the response
-        response_start_time = time.time()
-        try:
-            print("[API CALL: LITELLM] unified query generation")
-            if status_message:
-                await status_message.edit(content="Generating response...")
-            try:
-                response = await llm_service.generate_text(prompt)
-                if response is None:
-                    raise ValueError("Gemini model returned None")
-                response = response.strip()
-                if not response:
-                    raise ValueError("Gemini model returned whitespace-only response")
-            except LLMServiceError as e:
-                # Update status message before re-raising
-                if status_message:
-                    if hasattr(e, 'retry_after') and e.retry_after:
-                        await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
-                    else:
-                        await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
-                # Re-raise to be handled by the command
-                raise
-                
-            # For player-only queries, ensure response has "Sources:" section
-            if is_player_only and "Sources:" not in response:
-                response += "\n\nSources:"
-                
-        except Exception as e:
-            print(f"Failed to generate response: {e}")
-            return f"Error: Failed to generate response - {str(e)}"
-        response_time = time.time() - response_start_time
-        print(f"Generated response in {response_time:.2f} seconds")
-        # Filter sources to only include valid players
+
+        # Generate response
+        if status_message:
+            await status_message.edit(content="Generating response...")
+
+        print("[API CALL: LITELLM] final response generation")
+        response = await llm_service.generate_text(prompt)
+
+        if response is None:
+            return "Error: Failed to generate response"
+        response = response.strip()
+        if not response:
+            return "Error: Empty response generated"
+
+        # Add sources
         valid_player_sources = [
             source for source in player_sources
             if any(p.get('displayName', '').lower() == source.get('name', '').lower() for p in valid_players)
         ]
-        
-        # For player-only queries, simplify source handling
-        if is_player_only:
-            # Build sources section with just valid player sources
+
+        if player_data_list:
             sources_section = "\n\nSources:"
             for source in valid_player_sources:
                 if 'url' in source:
                     sources_section += f"\n- <{source['url']}>"
-            
-            # Replace or append sources section
+
             if "Sources:" in response:
-                # Replace entire sources section
                 response = re.sub(r'\n\nSources:.*$', sources_section, response, flags=re.DOTALL)
             else:
                 response += sources_section
         else:
-            # Normal source handling for non-player-only queries
             response = ensure_all_sources_included(response, valid_player_sources, wiki_sources, web_sources)
-        
-        
-        # Clean wiki URLs
+
+        # Clean URLs
         for source in wiki_sources:
             url = source['url']
             clean_page = source['name'].replace(' ', '_')
-            
-            # Handle escaped underscores
             escaped_page = clean_page.replace('_', '\\_')
             escaped_url = f"https://oldschool.runescape.wiki/w/{escaped_page}"
-            
-            # Apply the cleaning function with both regular and escaped URLs
             response = clean_url_patterns(response, url, escaped_url)
-        
-        # Clean player URLs
+
         for source in player_sources:
             url = source['url']
             response = clean_url_patterns(response, url)
-        
-        # Clean web URLs
+
         for source in web_sources:
             url = source['url']
             response = clean_url_patterns(response, url)
-        
-        # Now find and clean all other URLs in the response
-        # More aggressive URL detection and wrapping
+
+        # Clean any remaining URLs
         unwrapped_url_pattern = re.compile(r'(?<!\<)(https?://[^\s<>"]+)(?!\>)')
         response = unwrapped_url_pattern.sub(r'<\1>', response)
-        
-        # Log total processing time
+
+        # Log total time
         total_time = time.time() - start_time
-        print(f"Total processing time: {total_time:.2f} seconds")
-        
-        # Send long response in chunks if needed
+        print(f"\n[OPTIMIZED WORKFLOW] Completed in {total_time:.2f} seconds")
+        print(f"                      (vs ~8-10s with old workflow)")
+        print("=" * 70)
+
+        # Send response
         if status_message and len(response) > 1900:
             await send_long_response(status_message, response)
         else:
             if status_message:
                 await status_message.edit(content=response)
-            
+
         return response
-        
+
     except LLMServiceError as e:
-        # This is specifically for LLM service errors
-        print(f"LLM service error in process_unified_query: {e}")
+        print(f"[OPTIMIZED WORKFLOW] LLM service error: {e}")
         if status_message:
             if hasattr(e, 'retry_after') and e.retry_after:
                 await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
             else:
                 await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
-        # Re-raise to be handled by the command handler
         raise
     except Exception as e:
-        print(f"Error processing unified query: {e}")
+        print(f"[OPTIMIZED WORKFLOW] Error: {e}")
         if status_message:
             await status_message.edit(content=f"Error processing your query: {str(e)}")
         return f"Error processing your query: {str(e)}"
 
-async def roast_player(player_data, status_message=None):
-    """
-    Generate a humorous roast for a player based on their stats
-    
-    Args:
-        player_data: The player data to roast
-        status_message: Optional status message to update
-        
-    Returns:
-        Formatted roast text or None if an error occurred
-    """
-    if not config.gemini_api_key:
-        return "Sorry, the player roast feature is not available because the Gemini API key is not set."
-    
-    if not player_data or 'displayName' not in player_data:
-        return None
-    
-    # Format player data for context
-    try:
-        player_context = format_player_data(player_data)
-        if not player_context:
-            return None
-    except Exception as e:
-        print(f"Error formatting player data: {e}")
-        return None
-        
-    player_name = player_data.get('displayName', 'Unknown player')
-    
-    prompt = f"""
-    You are a ruthless and savage OSRS player who absolutely destroys noobs based on their stats. Your task is to brutally roast this player by pointing out everything wrong with their account.
-    
-    Rules for the roast:
-    1. ONLY focus on negatives - low skills, pathetic boss KC's, and embarrassingly high time spent on easy content
-    2. The roast must be ONE savage paragraph (not bullet points)
-    3. Savage comparisons are encouraged
-    4. Mock any high KC's in easy bosses while pointing out zero KC's in real content
-    5. Ridicule high levels in easy skills while roasting their terrible levels in actual challenging skills
-    6. Use words like "pathetic", "embarrassing", "terrible", "laughable"
-    7. End with a devastating final punch
-    8. Sailing is a new skill in OSRS, it is already released.
 
-    Player Name: {player_name}
-    
-    Player Stats:
-    {player_context}
-    
-    Generate a single paragraph roast focusing on the player's noob-like stats or achievements.
-    """
-    
-    try:
-        print("[API CALL: LITELLM] player roast generation")
-        try:
-            response = await llm_service.generate_text(prompt)
-            if response is None:
-                return None
-            response = response.strip()
-            if not response:
-                return None
-        except LLMServiceError as e:
-            # Update status message if available
-            if status_message:
-                if hasattr(e, 'retry_after') and e.retry_after:
-                    await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
-                else:
-                    await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
-            # Re-raise to be handled by the command - this will exit the function immediately
-            raise
-            
-        # Format the response for Discord
-        formatted_response = f"**Roast of {player_name}**\n\n{response}"
-        return formatted_response
-        
-    except Exception as e:
-        if not isinstance(e, LLMServiceError):  # We already handle LLMServiceError above
-            print(f"Error in model response: {e}")
-        return None
-# Helper to send long responses in Discord-friendly chunks
-async def send_long_response(status_message, response, chunk_size=1900):
-    """
-    Sends a long response in Discord-friendly chunks, splitting at newlines if possible.
-    The first chunk edits the status message, subsequent chunks are sent as new messages.
-    """
-    idx = 0
-    length = len(response)
-    pos = 0
-    while pos < length:
-        # Find the next chunk boundary
-        if (length - pos) <= chunk_size:
-            chunk = response[pos:]
-            pos = length
-        else:
-            # Look for the last newline before chunk_size
-            newline_pos = response.rfind('\n', pos, pos + chunk_size)
-            if newline_pos == -1 or newline_pos == pos:
-                # No newline found, or at the start, just split at chunk_size
-                split_pos = pos + chunk_size
-            else:
-                split_pos = newline_pos + 1  # include the newline
-            chunk = response[pos:split_pos]
-            pos = split_pos
-        # Add continuation marker if more content remains
-        if pos < length:
-            chunk = chunk.rstrip('\n') + "\n\n(Continued in next message)"
-        if idx == 0:
-            await status_message.edit(content=chunk)
-        else:
-            await status_message.channel.send(chunk)
-        idx += 1
+# =============================================================================
+

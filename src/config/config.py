@@ -51,7 +51,7 @@ class Config:
         self.wise_old_man_api_key = None
         self.wise_old_man_user_agent = None
         self.proxies = []
-        self.default_model = "gemini/gemini-2.5-flash-lite"
+        self.default_model = "gemini/gemini-2.5-flash"
         self.user_agent = "YomiBot"
 
         # Local LLM configuration

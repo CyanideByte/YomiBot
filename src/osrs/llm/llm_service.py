@@ -5,6 +5,8 @@ import time
 from typing import List, Optional, Tuple
 from PIL import Image
 from config.config import config
+from litellm import RateLimitError
+from osrs.llm.model_manager import get_model_manager
 
 # Set provider API keys in environment before importing litellm
 if hasattr(config, 'gemini_api_key') and config.gemini_api_key:
@@ -30,12 +32,40 @@ class LLMServiceError(Exception):
 
 class LLMService:
     """Centralized service for LLM interactions using LiteLLM"""
-    
+
     # Class variables to track rate limiting
     _rate_limited_until = 0  # Timestamp when rate limit expires
-    
+
     def __init__(self):
-        pass
+        self.model_manager = get_model_manager()
+
+    def _get_model_with_fallback(self, preferred_model: Optional[str] = None) -> Optional[str]:
+        """
+        Get the best available model, with fallback if rate limited.
+
+        Args:
+            preferred_model: Preferred model name (optional)
+
+        Returns:
+            Model name to use, or None if all models are rate limited
+        """
+        # If using local LLM, return it directly
+        if hasattr(config, 'use_local_llm') and config.use_local_llm:
+            return f"openai/{config.local_model}"
+
+        # If a specific model is requested and it's a Gemini model, check priority
+        if preferred_model:
+            # For non-Gemini models, use as-is
+            if not preferred_model.startswith("gemini-"):
+                return preferred_model
+
+        # Use the model manager to get best available Gemini model
+        model = self.model_manager.get_available_model()
+
+        if model is None:
+            return None
+
+        return f"gemini/{model}"
     
     def _extract_retry_delay(self, error_message: str) -> int:
         """Extract retry delay from error message"""
@@ -58,16 +88,25 @@ class LLMService:
                                     max_tokens: int = None) -> str:
         """
         Generate text response from an LLM using LiteLLM
+
+        Uses model priority with automatic fallback on rate limits.
         """
-        # Check if we're currently rate limited
-        is_limited, remaining_time = self._is_rate_limited()
-        if is_limited:
-            error_msg = f"Rate limit in effect. Please try again in {remaining_time} seconds."
-            print(error_msg)
-            raise LLMServiceError(error_msg, retry_after=remaining_time)
-            
-        litellm_model = model or config.default_model
-        
+        # Get the best available model
+        litellm_model = self._get_model_with_fallback(model or config.default_model)
+
+        if litellm_model is None:
+            # All models are rate limited
+            status = self.model_manager.get_status()
+            error_msg = "All Gemini models are currently rate limited. "
+            if status['rate_limited']:
+                oldest_entry = min(status['rate_limited'], key=lambda x: x['seconds_remaining'])
+                error_msg += f"Try again in {int(oldest_entry['seconds_remaining'])} seconds."
+            raise LLMServiceError(error_msg, retry_after=int(oldest_entry['seconds_remaining']))
+
+        # Log model usage
+        model_name = litellm_model.replace("gemini/", "")
+        self.model_manager.log_model_usage(model_name)
+
         try:
             response = await asyncio.to_thread(
                 lambda: litellm.completion(
@@ -79,20 +118,21 @@ class LLMService:
             if response and hasattr(response, "choices") and len(response.choices) > 0:
                 return response.choices[0].message.content
             return ""
-        except Exception as e:
-            error_message = f"Error in generate_text_litellm: {e}"
-            print(error_message)
-            
-            # Check if this is a rate limit error
-            if "RateLimitError" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                retry_delay = self._extract_retry_delay(str(e))
-                # Set the rate limit expiration time
-                self._rate_limited_until = time.time() + retry_delay
-                error_msg = f"LLM service rate limited. Please try again in {retry_delay} seconds."
-                raise LLMServiceError(error_msg, e, retry_after=retry_delay)
+        except RateLimitError as e:
+            # Mark this model as rate limited
+            self.model_manager.mark_rate_limited(model_name)
+
+            # Try with next available model (recursive call with no preferred model)
+            if model is None:  # Only retry if we're using the automatic selection
+                print(f"[RETRY] {model_name} rate limited, trying next model...")
+                return await self.generate_text(prompt, None, max_tokens)
             else:
-                # For other errors
-                raise LLMServiceError("LLM service is currently unavailable or overloaded", e)
+                # If a specific model was requested, raise the error
+                raise LLMServiceError(f"Model {model_name} is rate limited", e, retry_after=3600)
+        except Exception as e:
+            error_message = f"Error in generate_text: {e}"
+            print(error_message)
+            raise LLMServiceError("LLM service is currently unavailable or overloaded", e)
 
     async def generate_with_images(self,
                                   prompt: str,
@@ -100,15 +140,24 @@ class LLMService:
                                   model: str = None) -> str:
         """
         Generate text response from an LLM with image inputs
-        """
-        # Check if we're currently rate limited
-        is_limited, remaining_time = self._is_rate_limited()
-        if is_limited:
-            error_msg = f"Rate limit in effect. Please try again in {remaining_time} seconds."
-            print(error_msg)
-            raise LLMServiceError(error_msg, retry_after=remaining_time)
 
-        litellm_model = model or config.default_model
+        Uses model priority with automatic fallback on rate limits.
+        """
+        # Get the best available model
+        litellm_model = self._get_model_with_fallback(model or config.default_model)
+
+        if litellm_model is None:
+            # All models are rate limited
+            status = self.model_manager.get_status()
+            error_msg = "All Gemini models are currently rate limited. "
+            if status['rate_limited']:
+                oldest_entry = min(status['rate_limited'], key=lambda x: x['seconds_remaining'])
+                error_msg += f"Try again in {int(oldest_entry['seconds_remaining'])} seconds."
+            raise LLMServiceError(error_msg, retry_after=int(oldest_entry['seconds_remaining']))
+
+        # Log model usage
+        model_name = litellm_model.replace("gemini/", "")
+        self.model_manager.log_model_usage(model_name)
 
         # Convert images to base64
         image_contents = []
@@ -137,20 +186,20 @@ class LLMService:
             if response and hasattr(response, "choices") and len(response.choices) > 0:
                 return response.choices[0].message.content
             return ""
+        except RateLimitError as e:
+            # Mark this model as rate limited
+            self.model_manager.mark_rate_limited(model_name)
+
+            # Try with next available model
+            if model is None:
+                print(f"[RETRY] {model_name} rate limited, trying next model...")
+                return await self.generate_with_images(prompt, images, None)
+            else:
+                raise LLMServiceError(f"Model {model_name} is rate limited", e, retry_after=3600)
         except Exception as e:
             error_message = f"Error in generate_with_images: {e}"
             print(error_message)
-
-            # Check if this is a rate limit error
-            if "RateLimitError" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                retry_delay = self._extract_retry_delay(str(e))
-                # Set the rate limit expiration time
-                self._rate_limited_until = time.time() + retry_delay
-                error_msg = f"LLM service rate limited. Please try again in {retry_delay} seconds."
-                raise LLMServiceError(error_msg, e, retry_after=retry_delay)
-            else:
-                # For other errors
-                raise LLMServiceError("LLM service is currently unavailable or overloaded", e)
+            raise LLMServiceError("LLM service is currently unavailable or overloaded", e)
 
     async def generate_with_tools(
         self,
@@ -173,16 +222,24 @@ class LLMService:
                 - content: str (text response if no tools called)
                 - tool_calls: list of dicts (if tools were called)
                 Each tool_call has: {id, type, function: {name, arguments}}
-        """
-        # Check if we're currently rate limited
-        is_limited, remaining_time = self._is_rate_limited()
-        if is_limited:
-            error_msg = f"Rate limit in effect. Please try again in {remaining_time} seconds."
-            print(error_msg)
-            raise LLMServiceError(error_msg, retry_after=remaining_time)
 
-        # Determine which model to use
-        litellm_model = model or config.default_model
+        Uses model priority with automatic fallback on rate limits.
+        """
+        # Get the best available model
+        litellm_model = self._get_model_with_fallback(model or config.default_model)
+
+        if litellm_model is None:
+            # All models are rate limited
+            status = self.model_manager.get_status()
+            error_msg = "All Gemini models are currently rate limited. "
+            if status['rate_limited']:
+                oldest_entry = min(status['rate_limited'], key=lambda x: x['seconds_remaining'])
+                error_msg += f"Try again in {int(oldest_entry['seconds_remaining'])} seconds."
+            raise LLMServiceError(error_msg, retry_after=int(oldest_entry['seconds_remaining']))
+
+        # Log model usage
+        model_name = litellm_model.replace("gemini/", "")
+        self.model_manager.log_model_usage(model_name)
 
         # Configure litellm for local model if needed
         if hasattr(config, 'use_local_llm') and config.use_local_llm:
@@ -225,18 +282,20 @@ class LLMService:
 
             return result
 
+        except RateLimitError as e:
+            # Mark this model as rate limited
+            self.model_manager.mark_rate_limited(model_name)
+
+            # Try with next available model
+            if model is None:
+                print(f"[RETRY] {model_name} rate limited, trying next model...")
+                return await self.generate_with_tools(prompt, tools, None, tool_choice)
+            else:
+                raise LLMServiceError(f"Model {model_name} is rate limited", e, retry_after=3600)
         except Exception as e:
             error_message = f"Error in generate_with_tools: {e}"
             print(error_message)
-
-            # Check if this is a rate limit error
-            if "RateLimitError" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                retry_delay = self._extract_retry_delay(str(e))
-                self._rate_limited_until = time.time() + retry_delay
-                error_msg = f"LLM service rate limited. Please try again in {retry_delay} seconds."
-                raise LLMServiceError(error_msg, e, retry_after=retry_delay)
-            else:
-                raise LLMServiceError("LLM service is currently unavailable or overloaded", e)
+            raise LLMServiceError("LLM service is currently unavailable or overloaded", e)
 
 
 llm_service = LLMService()
