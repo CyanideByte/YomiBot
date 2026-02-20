@@ -194,13 +194,13 @@ class Config:
     def _load_brave_config(self):
         """Load Brave Search API configuration from environment variables"""
         self.brave_api_key = os.getenv('BRAVE_API_KEY')
-        
+
         # Debug information
         print(f"BRAVE_API_KEY from environment: {'Found' if self.brave_api_key else 'Not found'}")
-        
+
         if not self.brave_api_key:
             print("Warning: BRAVE_API_KEY environment variable is not set")
-    
+
     def _load_wise_old_man_config(self):
         """Load Wise Old Man API configuration from environment variables"""
         self.wise_old_man_api_key = os.getenv('WISE_OLD_MAN_API_KEY')
