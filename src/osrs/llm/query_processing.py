@@ -122,7 +122,7 @@ async def process_unified_query(
     print("[OPTIMIZED WORKFLOW] Using parallel tool calling")
     print("=" * 70)
 
-    if not config.gemini_api_key and not config.use_local_llm:
+    if not config.gemini_api_key:
         return "Sorry, the OSRS assistant is not available because no LLM is configured."
 
     start_time = time.time()

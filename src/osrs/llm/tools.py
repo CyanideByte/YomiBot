@@ -1,9 +1,8 @@
 """
 Tool definitions for OSRS LLM function calling.
 
-All tools use OpenAI-compatible format, which works with both:
-- Cloud models (Gemini, OpenAI, Anthropic, etc.) via litellm
-- Local models (LM Studio, Ollama, etc.) via litellm
+All tools use OpenAI-compatible format, which works with cloud models
+via litellm (Gemini, OpenAI, Anthropic, Groq, OpenRouter, etc.)
 """
 
 # Available metrics for OSRS

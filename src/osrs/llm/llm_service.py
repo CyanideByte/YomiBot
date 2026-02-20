@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import re
 import time
 from typing import List, Optional, Tuple
 from PIL import Image
@@ -10,14 +9,6 @@ from litellm import RateLimitError
 from litellm import ServiceUnavailableError
 from litellm import NotFoundError
 from osrs.llm.model_manager import get_model_manager
-
-
-def _transform_tools_for_provider(tools: list, model: str) -> list:
-    """Transform tool schemas for providers that need different formats."""
-    import copy
-
-    # For most providers, our tool format works fine
-    return tools
 
 
 # Set provider API keys in environment before importing litellm
@@ -45,9 +36,6 @@ class LLMServiceError(Exception):
 class LLMService:
     """Centralized service for LLM interactions using LiteLLM"""
 
-    # Class variables to track rate limiting
-    _rate_limited_until = 0  # Timestamp when rate limit expires
-
     def __init__(self):
         self.model_manager = get_model_manager()
         # Log initial status
@@ -69,10 +57,6 @@ class LLMService:
         Returns:
             Model name to use, or None if all models are rate limited
         """
-        # If using local LLM, return it directly
-        if hasattr(config, 'use_local_llm') and config.use_local_llm:
-            return f"openai/{config.local_model}"
-
         # If a specific model is requested, check if it's available
         if preferred_model:
             status = self.model_manager.get_status()
@@ -91,21 +75,6 @@ class LLMService:
 
         # All models stored with provider prefix, use as-is
         return model
-    
-    def _extract_retry_delay(self, error_message: str) -> int:
-        """Extract retry delay from error message"""
-        # Try to find the retryDelay value in the error message
-        match = re.search(r'"retryDelay":\s*"(\d+)s"', str(error_message))
-        if match:
-            return int(match.group(1))
-        return 60  # Default to 60 seconds if we can't find the value
-    
-    def _is_rate_limited(self) -> Tuple[bool, int]:
-        """Check if we're currently rate limited and return remaining time"""
-        if self._rate_limited_until > time.time():
-            remaining = int(self._rate_limited_until - time.time())
-            return True, remaining
-        return False, 0
 
     async def generate_text(self,
                                     prompt: str,
@@ -302,21 +271,12 @@ class LLMService:
         model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "")
         self.model_manager.log_model_usage(model_name)
 
-        # Configure litellm for local model if needed
-        if hasattr(config, 'use_local_llm') and config.use_local_llm:
-            if hasattr(config, 'local_llm_base'):
-                litellm.api_base = config.local_llm_base
-            litellm_model = f"openai/{config.local_model}"
-
-        # Transform tools for provider-specific formats
-        adjusted_tools = _transform_tools_for_provider(tools, litellm_model)
-
         try:
             response = await asyncio.to_thread(
                 lambda: litellm.completion(
                     model=litellm_model,
                     messages=[{"role": "user", "content": prompt}],
-                    tools=adjusted_tools,
+                    tools=tools,
                     tool_choice=tool_choice
                 )
             )
