@@ -172,7 +172,7 @@ async def extract_text_from_url(session, page_url):
                         html_content,
                         include_comments=False,
                         include_tables=True,
-                        output_format="text"
+                        output_format="txt"
                     )
                 except Exception as e:
                     print(f"Trafilatura extraction failed for {page_url}: {e}")
