@@ -54,6 +54,27 @@ class Config:
         self.default_model = "gemini/gemini-2.5-flash"
         self.user_agent = "YomiBot"
 
+        # HTTP headers for web scraping (lowers blocking risk)
+        self.http_headers = {
+            # The modern Chrome User-Agent
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            # Modern Chrome security headers that Cloudflare expects to see
+            'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            # Standard accept headers
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            # Navigation behavior
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Connection': 'keep-alive'
+        }
+
         # Local LLM configuration
         self.use_local_llm = False
         self.local_llm_base = "http://localhost:1234/v1"

@@ -1,6 +1,7 @@
 import os
 import requests
 import aiohttp
+import trafilatura
 from bs4 import BeautifulSoup
 import re
 from pathlib import Path
@@ -144,46 +145,43 @@ def save_page_content_to_cache(url, content):
     except Exception as e:
         print(f"Error saving page cache for URL {url}: {e}")
 
-# Extract printable text from a web page
+# Extract printable text from a web page using trafilatura
 async def extract_text_from_url(session, page_url):
     try:
         # Try to load from cache first
         cached_content = load_cached_page_content(page_url)
         if cached_content:
             return cached_content
-            
+
         print(f"Fetching content from URL: {page_url}")
-        headers = {
-            'User-Agent': config.user_agent,
-            'Accept': '*/*',
-            'Connection': 'keep-alive',
-            'Accept-Encoding': 'gzip, deflate, br, zstd'
-        }
-        # Use a timeout for the request
+
+        # Use configured headers for better success rate
         timeout = aiohttp.ClientTimeout(total=10)
-        async with session.get(page_url, headers=headers, timeout=timeout, allow_redirects=True) as response:
+        async with session.get(page_url, headers=config.http_headers, timeout=timeout, allow_redirects=True) as response:
             if response.status == 200:
-                try:
-                    # Try UTF-8 first
-                    html_content = await response.text(encoding='utf-8')
-                except UnicodeDecodeError:
-                    try:
-                        # Fall back to latin-1 which can handle any byte sequence
-                        html_content = await response.text(encoding='latin-1')
-                    except Exception as e:
-                        print(f"Failed to decode content from {page_url}: {e}")
-                        return None
-                
-                soup = BeautifulSoup(html_content, "html.parser")
-                for tag in soup(["script", "style", "noscript"]):
-                    tag.decompose()
-                
-                content = soup.get_text(separator="\n", strip=True)
-                
+                # Get HTML content
+                html_content = await response.text()
+
+                # Use trafilatura for cleaner extraction (less boilerplate = fewer tokens)
+                downloaded = trafilatura.fetch_url(page_url, no_ssl=True)
+                content = trafilatura.extract(
+                    downloaded,
+                    include_comments=False,
+                    include_tables=True,
+                    output_format="text"
+                )
+
+                # Fallback to BeautifulSoup if trafilatura fails
+                if not content:
+                    soup = BeautifulSoup(html_content, "html.parser")
+                    for tag in soup(["script", "style", "noscript"]):
+                        tag.decompose()
+                    content = soup.get_text(separator="\n", strip=True)
+
                 # Save to cache if content was successfully extracted
                 if content:
                     save_page_content_to_cache(page_url, content)
-                    
+
                 return content
             else:
                 print(f"Failed to fetch {page_url}: Status {response.status}")

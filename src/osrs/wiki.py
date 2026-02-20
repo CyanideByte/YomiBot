@@ -112,15 +112,9 @@ def extract_item_info(html_content):
 
 async def find_redirect_target(session, url):
     """Find the redirect target URL if a page redirects and return the target URL and content if found"""
-    headers = {
-        'User-Agent': config.user_agent,
-        'Accept': '*/*',
-        'Connection': 'keep-alive',
-        'Accept-Encoding': 'gzip, deflate, br, zstd'
-    }
 
     try:
-        async with session.get(url, headers=headers) as response:
+        async with session.get(url, headers=config.http_headers) as response:
             if response.status == 200:
                 content = await response.text()
                 soup = BeautifulSoup(content, 'html.parser')
@@ -245,12 +239,9 @@ async def fetch_osrs_wiki(session, page_name):
     original_page_name = page_name
     url = f"https://oldschool.runescape.wiki/w/{page_name}"
     redirected_page_name = None  # Initialize as None
-    headers = {
-        'User-Agent': config.user_agent,
-        'Accept': '*/*',
-        'Connection': 'keep-alive',
-        'Accept-Encoding': 'gzip, deflate, br, zstd'
-    }
+
+    # Start with configured headers
+    headers = config.http_headers.copy()
 
     # Try to load from cache first
     cache_data = load_cached_page(page_name)
