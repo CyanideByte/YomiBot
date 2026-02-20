@@ -22,6 +22,8 @@ if hasattr(config, 'groq_api_key') and config.groq_api_key:
     os.environ["GROQ_API_KEY"] = config.groq_api_key
 if hasattr(config, 'openrouter_api_key') and config.openrouter_api_key:
     os.environ["OPENROUTER_API_KEY"] = config.openrouter_api_key
+if hasattr(config, 'huggingface_api_key') and config.huggingface_api_key:
+    os.environ["HUGGINGFACE_API_KEY"] = config.huggingface_api_key
 
 import litellm
 
@@ -95,7 +97,7 @@ class LLMService:
             raise LLMServiceError(error_msg)
 
         # Log model usage
-        model_name = litellm_model.replace("gemini/", "")
+        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "").replace("huggingface/", "")
         self.model_manager.log_model_usage(model_name)
 
         try:
@@ -124,26 +126,38 @@ class LLMService:
             return ""
         except RateLimitError as e:
             # Mark this model as rate limited
-            self.model_manager.mark_rate_limited(model_name)
+            self.model_manager.mark_rate_limited(litellm_model)
 
             # Try with next available model (recursive call with no preferred model)
             if model is None:  # Only retry if we're using the automatic selection
-                print(f"[RETRY] {model_name} rate limited, trying next model...")
+                print(f"[RETRY] {litellm_model} rate limited, trying next model...")
                 return await self.generate_text(prompt, None, max_tokens)
             else:
                 # If a specific model was requested, raise the error
-                raise LLMServiceError(f"Model {model_name} is rate limited", e, retry_after=3600)
+                raise LLMServiceError(f"Model {litellm_model} is rate limited", e, retry_after=3600)
         except ServiceUnavailableError as e:
             # Model is overloaded/unavailable, treat like rate limit
-            self.model_manager.mark_rate_limited(model_name)
+            self.model_manager.mark_rate_limited(litellm_model)
 
             # Try with next available model
             if model is None:
-                print(f"[RETRY] {model_name} is unavailable (503), trying next model...")
+                print(f"[RETRY] {litellm_model} is unavailable (503), trying next model...")
                 return await self.generate_text(prompt, None, max_tokens)
             else:
-                raise LLMServiceError(f"Model {model_name} is currently unavailable", e, retry_after=300)
+                raise LLMServiceError(f"Model {litellm_model} is currently unavailable", e, retry_after=300)
         except Exception as e:
+            # Check if this is a model_not_found error
+            error_str = str(e)
+            if "model_not_found" in error_str or "does not exist" in error_str:
+                # Model doesn't exist on this provider, skip it
+                self.model_manager.mark_rate_limited(litellm_model)
+                if model is None:
+                    print(f"[SKIP] {litellm_model} does not exist, trying next model...")
+                    return await self.generate_text(prompt, None, max_tokens)
+                else:
+                    raise LLMServiceError(f"Model {litellm_model} does not exist", e)
+
+            # Other errors
             error_message = f"Error in generate_text: {e}"
             print(error_message)
             raise LLMServiceError("LLM service is currently unavailable or overloaded", e)
@@ -167,7 +181,7 @@ class LLMService:
             raise LLMServiceError(error_msg)
 
         # Log model usage
-        model_name = litellm_model.replace("gemini/", "")
+        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "").replace("huggingface/", "")
         self.model_manager.log_model_usage(model_name)
 
         # Convert images to base64
@@ -211,25 +225,37 @@ class LLMService:
             return ""
         except RateLimitError as e:
             # Mark this model as rate limited
-            self.model_manager.mark_rate_limited(model_name)
+            self.model_manager.mark_rate_limited(litellm_model)
 
             # Try with next available model
             if model is None:
-                print(f"[RETRY] {model_name} rate limited, trying next model...")
+                print(f"[RETRY] {litellm_model} rate limited, trying next model...")
                 return await self.generate_with_images(prompt, images, None)
             else:
-                raise LLMServiceError(f"Model {model_name} is rate limited", e, retry_after=3600)
+                raise LLMServiceError(f"Model {litellm_model} is rate limited", e, retry_after=3600)
         except ServiceUnavailableError as e:
             # Model is overloaded/unavailable, treat like rate limit
-            self.model_manager.mark_rate_limited(model_name)
+            self.model_manager.mark_rate_limited(litellm_model)
 
             # Try with next available model
             if model is None:
-                print(f"[RETRY] {model_name} is unavailable (503), trying next model...")
+                print(f"[RETRY] {litellm_model} is unavailable (503), trying next model...")
                 return await self.generate_with_images(prompt, images, None)
             else:
-                raise LLMServiceError(f"Model {model_name} is currently unavailable", e, retry_after=300)
+                raise LLMServiceError(f"Model {litellm_model} is currently unavailable", e, retry_after=300)
         except Exception as e:
+            # Check if this is a model_not_found error
+            error_str = str(e)
+            if "model_not_found" in error_str or "does not exist" in error_str:
+                # Model doesn't exist on this provider, skip it
+                self.model_manager.mark_rate_limited(litellm_model)
+                if model is None:
+                    print(f"[SKIP] {litellm_model} does not exist, trying next model...")
+                    return await self.generate_with_images(prompt, images, None)
+                else:
+                    raise LLMServiceError(f"Model {litellm_model} does not exist", e)
+
+            # Other errors
             error_message = f"Error in generate_with_images: {e}"
             print(error_message)
             raise LLMServiceError("LLM service is currently unavailable or overloaded", e)
@@ -268,7 +294,7 @@ class LLMService:
             raise LLMServiceError(error_msg)
 
         # Log model usage
-        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "")
+        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "").replace("huggingface/", "")
         self.model_manager.log_model_usage(model_name)
 
         try:
@@ -320,35 +346,45 @@ class LLMService:
 
         except RateLimitError as e:
             # Mark this model as rate limited
-            self.model_manager.mark_rate_limited(model_name)
+            self.model_manager.mark_rate_limited(litellm_model)
 
             # Try with next available model
             if model is None:
-                print(f"[RETRY] {model_name} rate limited, trying next model...")
+                print(f"[RETRY] {litellm_model} rate limited, trying next model...")
                 return await self.generate_with_tools(prompt, tools, None, tool_choice)
             else:
-                raise LLMServiceError(f"Model {model_name} is rate limited", e, retry_after=3600)
+                raise LLMServiceError(f"Model {litellm_model} is rate limited", e, retry_after=3600)
         except ServiceUnavailableError as e:
             # Model is overloaded/unavailable, treat like rate limit
-            self.model_manager.mark_rate_limited(model_name)
+            self.model_manager.mark_rate_limited(litellm_model)
 
             # Try with next available model
             if model is None:
-                print(f"[RETRY] {model_name} is unavailable (503), trying next model...")
+                print(f"[RETRY] {litellm_model} is unavailable (503), trying next model...")
                 return await self.generate_with_tools(prompt, tools, None, tool_choice)
             else:
-                raise LLMServiceError(f"Model {model_name} is currently unavailable", e, retry_after=300)
+                raise LLMServiceError(f"Model {litellm_model} is currently unavailable", e, retry_after=300)
         except (NotFoundError, Exception) as e:
             # Check if this is a tool-related error
             error_str = str(e)
             if any(keyword in error_str for keyword in ["tool_choice", "tool_call", "tools[", "tools.", "tool use"]):
                 # Model doesn't support tools or has incompatible tool format
-                self.model_manager.mark_rate_limited(model_name)
+                self.model_manager.mark_rate_limited(litellm_model)
                 if model is None:
-                    print(f"[SKIP] {model_name} has incompatible tool format, trying next model...")
+                    print(f"[SKIP] {litellm_model} has incompatible tool format, trying next model...")
                     return await self.generate_with_tools(prompt, tools, None, tool_choice)
                 else:
-                    raise LLMServiceError(f"Model {model_name} has incompatible tool format", e)
+                    raise LLMServiceError(f"Model {litellm_model} has incompatible tool format", e)
+
+            # Check if this is a model_not_found error
+            if "model_not_found" in error_str or "does not exist" in error_str:
+                # Model doesn't exist on this provider, skip it
+                self.model_manager.mark_rate_limited(litellm_model)
+                if model is None:
+                    print(f"[SKIP] {litellm_model} does not exist, trying next model...")
+                    return await self.generate_with_tools(prompt, tools, None, tool_choice)
+                else:
+                    raise LLMServiceError(f"Model {litellm_model} does not exist", e)
 
             # Other errors
             error_message = f"Error in generate_with_tools: {e}"

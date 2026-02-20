@@ -87,6 +87,7 @@ class Config:
         self._load_anthropic_config()
         self._load_groq_config()
         self._load_openrouter_config()
+        self._load_huggingface_config()
         self._load_brave_config()
         self._load_wise_old_man_config()
         self._load_proxies()
@@ -184,7 +185,14 @@ class Config:
         print(f"OPENROUTER_API_KEY from environment: {'Found' if self.openrouter_api_key else 'Not found'}")
         if not self.openrouter_api_key:
             print("Warning: OPENROUTER_API_KEY environment variable is not set")
-    
+
+    def _load_huggingface_config(self):
+        """Load HuggingFace API configuration from environment variables"""
+        self.huggingface_api_key = os.getenv('HUGGINGFACE_API_KEY')
+        print(f"HUGGINGFACE_API_KEY from environment: {'Found' if self.huggingface_api_key else 'Not found'}")
+        if not self.huggingface_api_key:
+            print("Warning: HUGGINGFACE_API_KEY environment variable is not set")
+
     def _load_brave_config(self):
         """Load Brave Search API configuration from environment variables"""
         self.brave_api_key = os.getenv('BRAVE_API_KEY')

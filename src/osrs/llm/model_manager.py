@@ -149,9 +149,9 @@ class ModelPriorityManager:
     # All models stored WITH provider prefix for consistency
     # gemini-3-flash-preview removed: 20-40s per call vs 1-3s for 2.5 models
     MODEL_PRIORITY = [
+        "groq/moonshotai/kimi-k2-instruct-0905",
         "groq/meta-llama/llama-4-scout-17b-16e-instruct",
         "groq/meta-llama/llama-4-maverick-17b-128e-instruct",
-        "groq/moonshotai/kimi-k2-instruct-0905",
         "groq/openai/gpt-oss-120b",
         "groq/openai/gpt-oss-20b",
         "groq/llama-3.3-70b-versatile",
@@ -160,6 +160,7 @@ class ModelPriorityManager:
         "gemini/gemini-2.5-flash-lite",
         "openrouter/stepfun/step-3.5-flash:free",
         "gemini/gemini-3-flash-preview",
+        "gemini/gemma-3-27b-it"
     ]
 
     def __init__(self, usage_tracker: APIUsageTracker):
