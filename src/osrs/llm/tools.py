@@ -45,7 +45,7 @@ IDENTIFY_WIKI_PAGES_TOOL = {
     "type": "function",
     "function": {
         "name": "identify_wiki_pages",
-        "description": "Identify which OSRS wiki pages are relevant to the user's query based on explicitly mentioned items, NPCs, bosses, skills, or concepts. Maximum 10 pages. Use underscores instead of spaces (e.g., Dragon_scimitar, Abyssal_demon). For items, use exact names. For NPCs/bosses, include their Strategies page if available. For skills, include their Training page. When referring to Chambers of Xeric/CoX, include Ancient_chest. When referring to Theatre of Blood/ToB, include Monumental_chest. When referring to Tombs of Amascut/ToA, include Chest_(Tombs_of_Amascut). If no relevant pages are found, return an empty array.",
+        "description": "Identify which OSRS wiki pages are relevant to the user's query based on explicitly mentioned items, NPCs, bosses, skills, or concepts. Maximum 10 pages. Use underscores instead of spaces (e.g., Dragon_scimitar, Abyssal_demon). For items, use exact names. For NPCs/bosses/activities, ALWAYS include their /Strategies subpage (e.g., Giant_Mole/Strategies for Giant_Mole, Chambers_of_Xeric/Strategies for Chambers_of_Xeric). For skills, ALWAYS include their /Training subpage (e.g., Thieving/Training for Thieving, Fishing/Training for Fishing). When referring to Chambers of Xeric/CoX, include Ancient_chest. When referring to Theatre of Blood/ToB, include Monumental_chest. When referring to Tombs of Amascut/ToA, include Chest_(Tombs_of_Amascut). If no relevant pages are found, return an empty array.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -206,7 +206,7 @@ UNIFIED_IDENTIFICATION_TOOL = {
                 "wiki_pages": {
                     "type": "array",
                     "items": {"type": "string", "pattern": "^[A-Za-z0-9_()]{1,40}$"},
-                    "description": "List of relevant OSRS wiki page names using underscores (e.g., Dragon_scimitar, Abyssal_demon). Maximum 10 pages.",
+                    "description": "List of relevant OSRS wiki page names using underscores (e.g., Dragon_scimitar, Abyssal_demon). Maximum 10 pages. CRITICAL: For bosses, NPCs, and activities, ALWAYS include the /Strategies subpage (e.g., if including Giant_Mole, also include Giant_Mole/Strategies; if including Chambers_of_Xeric, also include Chambers_of_Xeric/Strategies). For skills, ALWAYS include the /Training subpage (e.g., if including Thieving, also include Thieving/Training; if including Fishing, also include Fishing/Training).",
                     "maxItems": 10
                 },
                 "metrics": {

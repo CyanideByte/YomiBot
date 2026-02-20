@@ -30,7 +30,7 @@ Content Rules:
 6. Format information clearly and consistently
 7. Break information into clear sections
 8. Keep answers concise (under 2,000 characters)
-9. ALWAYS include a "Sources:" section at the end of your response with all source URLs
+9. If you use any external sources (wiki, player data, web search), include a "Sources:" section at the end with all source URLs. If you don't use any external sources, do not include a Sources section.
 
 Remember: Create clear, easy-to-read responses that focus on the key information.
 """
@@ -53,22 +53,22 @@ Provide a response following these specific formatting rules:
    - Combat stats
    - Other numerical values
 5. Use comma notation for numbers over a million (e.g., "1,234,567" instead of "1234567")
-6. ALWAYS include sources at the end of your response:
-   - You MUST start a new paragraph with the exact text "Sources:" (including the colon)
+6. If you use external sources (wiki, player data, web search), include sources at the end of your response:
+   - Start a new paragraph with the exact text "Sources:" (including the colon)
    - The "Sources:" header MUST be on its own line
    - List each source URL on its own line with a hyphen (-) bullet point
    - Format ALL sources consistently as: "- <URL>" (no prefixes like "Player data:")
    - Example:
-     
+
      Sources:
      - <https://oldschool.runescape.wiki/w/Abyssal_whip>
      - <https://wiseoldman.net/players/playername>
-   
+
    - Do NOT add empty lines between sources
    - Do NOT include duplicate URLs in the sources section
    - Include ALL relevant sources
-   - The "Sources:" header is ABSOLUTELY REQUIRED for ALL responses
-   - NEVER list URLs without the "Sources:" header
+   - ONLY include a Sources section if you actually used external sources
+   - If answering from general knowledge without sources, skip the Sources section entirely
 """
 
 async def process_unified_query(
@@ -179,21 +179,25 @@ async def process_unified_query(
                 print("[API CALL: LITELLM] metrics data generation")
                 response = await llm_service.generate_text(prompt)
 
-                # Build sources
-                sources_section = "\n\nSources:"
-                for metric_name in metrics_data.keys():
-                    source_url = f"https://wiseoldman.net/groups/3773/hiscores?metric={metric_name}"
-                    sources_section += f"\n- <{source_url}>"
+                # Build sources - only if we have metrics data
+                if metrics_data:
+                    sources_section = "\n\nSources:"
+                    for metric_name in metrics_data.keys():
+                        source_url = f"https://wiseoldman.net/groups/3773/hiscores?metric={metric_name}"
+                        sources_section += f"\n- <{source_url}>"
 
-                if "Sources:" not in response:
-                    response += sources_section
-                else:
-                    response = re.sub(r'\n\nSources:.*$', sources_section, response, flags=re.DOTALL)
+                    if "Sources:" not in response:
+                        response += sources_section
+                    else:
+                        response = re.sub(r'\n\nSources:.*$', sources_section, response, flags=re.DOTALL)
 
                 # Clean URLs
                 for metric_name in metrics_data.keys():
                     source_url = f"https://wiseoldman.net/groups/3773/hiscores?metric={metric_name}"
                     response = clean_url_patterns(response, source_url)
+
+                # Remove empty Sources sections
+                response = re.sub(r'\n\nSources:\s*$', '', response.strip())
 
                 if status_message and len(response) > 1900:
                     await send_long_response(status_message, response)
@@ -389,7 +393,7 @@ async def process_unified_query(
             if any(p.get('displayName', '').lower() == source.get('name', '').lower() for p in valid_players)
         ]
 
-        if player_data_list:
+        if player_data_list and valid_player_sources:
             sources_section = "\n\nSources:"
             for source in valid_player_sources:
                 if 'url' in source:
@@ -421,6 +425,9 @@ async def process_unified_query(
         # Clean any remaining URLs
         unwrapped_url_pattern = re.compile(r'(?<!\<)(https?://[^\s<>"]+)(?!\>)')
         response = unwrapped_url_pattern.sub(r'<\1>', response)
+
+        # Remove empty Sources sections (LLM might generate "Sources:" with nothing after)
+        response = re.sub(r'\n\nSources:\s*$', '', response.strip())
 
         # Log total time
         total_time = time.time() - start_time
