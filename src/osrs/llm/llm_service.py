@@ -22,8 +22,6 @@ if hasattr(config, 'groq_api_key') and config.groq_api_key:
     os.environ["GROQ_API_KEY"] = config.groq_api_key
 if hasattr(config, 'openrouter_api_key') and config.openrouter_api_key:
     os.environ["OPENROUTER_API_KEY"] = config.openrouter_api_key
-if hasattr(config, 'huggingface_api_key') and config.huggingface_api_key:
-    os.environ["HUGGINGFACE_API_KEY"] = config.huggingface_api_key
 
 import litellm
 
@@ -97,7 +95,7 @@ class LLMService:
             raise LLMServiceError(error_msg)
 
         # Log model usage
-        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "").replace("huggingface/", "")
+        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "")
         self.model_manager.log_model_usage(model_name)
 
         try:
@@ -181,7 +179,7 @@ class LLMService:
             raise LLMServiceError(error_msg)
 
         # Log model usage
-        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "").replace("huggingface/", "")
+        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "")
         self.model_manager.log_model_usage(model_name)
 
         # Convert images to base64
@@ -294,7 +292,7 @@ class LLMService:
             raise LLMServiceError(error_msg)
 
         # Log model usage
-        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "").replace("huggingface/", "")
+        model_name = litellm_model.replace("gemini/", "").replace("groq/", "").replace("openai/", "").replace("openrouter/", "")
         self.model_manager.log_model_usage(model_name)
 
         try:
