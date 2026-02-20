@@ -307,29 +307,3 @@ def format_search_results(results):
         formatted_text += "\n\n" + "="*50 + "\n\n"
     
     return formatted_text
-async def get_web_search_context(query):
-    """Main function to get web search context for a query
-    
-    Returns:
-        list: A list of search result dictionaries with 'title', 'url', and 'content' keys
-              or an empty list if no search is needed
-    """
-    try:
-        # Import here to avoid circular imports
-        from osrs.llm.identification import generate_search_term
-        
-        # Generate a search term based on the query
-        search_term = await generate_search_term(query)
-        
-        # Check if the model determined that no search is needed
-        if search_term == "[NO_SEARCH_NEEDED]":
-            print(f"Model determined no search is needed for query: {query}")
-            return []
-        
-        # Search the web using the generated term
-        search_results = await search_web(search_term)
-        
-        return search_results
-    except Exception as e:
-        print(f"Error getting web search context: {e}")
-        return []
