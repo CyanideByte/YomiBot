@@ -453,4 +453,86 @@ async def process_unified_query(
 
 
 # =============================================================================
+# PLAYER ROASTING
+# =============================================================================
+
+async def roast_player(player_data, status_message=None):
+    """
+    Generate a humorous roast for a player based on their stats
+
+    Args:
+        player_data: The player data to roast
+        status_message: Optional status message to update
+
+    Returns:
+        Formatted roast text or None if an error occurred
+    """
+    if not config.gemini_api_key:
+        return "Sorry, the player roast feature is not available because the Gemini API key is not set."
+
+    if not player_data or 'displayName' not in player_data:
+        return None
+
+    # Format player data for context
+    try:
+        player_context = format_player_data(player_data)
+        if not player_context:
+            return None
+    except Exception as e:
+        print(f"Error formatting player data: {e}")
+        return None
+
+    player_name = player_data.get('displayName', 'Unknown player')
+
+    prompt = f"""
+    You are a ruthless and savage OSRS player who absolutely destroys noobs based on their stats. Your task is to brutally roast this player by pointing out everything wrong with their account.
+
+    Rules for the roast:
+    1. ONLY focus on negatives - low skills, pathetic boss KC's, and embarrassingly high time spent on easy content
+    2. The roast must be ONE savage paragraph (not bullet points)
+    3. Savage comparisons are encouraged
+    4. Mock any high KC's in easy bosses while pointing out zero KC's in real content
+    5. Ridicule high levels in easy skills while roasting their terrible levels in actual challenging skills
+    6. Use words like "pathetic", "embarrassing", "terrible", "laughable"
+    7. End with a devastating final punch
+    8. Sailing is a new skill in OSRS, it is already released.
+
+    Player Name: {player_name}
+
+    Player Stats:
+    {player_context}
+
+    Generate a single paragraph roast focusing on the player's noob-like stats or achievements.
+    """
+
+    try:
+        print("[API CALL: LITELLM] player roast generation")
+        try:
+            response = await llm_service.generate_text(prompt)
+            if response is None:
+                return None
+            response = response.strip()
+            if not response:
+                return None
+        except LLMServiceError as e:
+            # Update status message if available
+            if status_message:
+                if hasattr(e, 'retry_after') and e.retry_after:
+                    await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again in {e.retry_after} seconds.")
+                else:
+                    await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+            # Re-raise to be handled by the command - this will exit the function immediately
+            raise
+
+        # Format the response for Discord
+        formatted_response = f"**Roast of {player_name}**\n\n{response}"
+        return formatted_response
+
+    except Exception as e:
+        if not isinstance(e, LLMServiceError):  # We already handle LLMServiceError above
+            print(f"Error in model response: {e}")
+        return None
+
+
+# =============================================================================
 
