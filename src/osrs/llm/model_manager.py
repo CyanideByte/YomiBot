@@ -47,8 +47,9 @@ class ModelPriorityManager:
     """
 
     # Model priority list (highest to lowest)
+    # Note: gemini-3-flash-preview is disabled due to slow performance
     MODEL_PRIORITY = [
-        "gemini-3-flash-preview",
+        # "gemini-3-flash-preview",  # Disabled - too slow
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
     ]
@@ -67,9 +68,13 @@ class ModelPriorityManager:
             # Clean up expired cooldowns first
             self._cleanup_expired_cooldowns()
 
+            # Log what models are on cooldown
+            if self.rate_limits:
+                logger.info(f"[MODEL SELECTOR] Rate limited models: {list(self.rate_limits.keys())}")
+
             for model in self.MODEL_PRIORITY:
                 if model not in self.rate_limits:
-                    logger.info(f"[MODEL SELECTOR] Using {model} (highest priority available)")
+                    logger.info(f"[MODEL SELECTOR] Selected {model} (highest priority available)")
                     return model
 
             # All models are rate limited

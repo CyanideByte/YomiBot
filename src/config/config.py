@@ -51,7 +51,7 @@ class Config:
         self.wise_old_man_api_key = None
         self.wise_old_man_user_agent = None
         self.proxies = []
-        self.default_model = "gemini/gemini-2.5-flash"
+        self.default_model = None  # Use model priority system instead
         self.user_agent = "YomiBot"
 
         # HTTP headers for web scraping (lowers blocking risk)

@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 from PIL import Image
 from config.config import config
 from litellm import RateLimitError
+from litellm import ServiceUnavailableError
 from osrs.llm.model_manager import get_model_manager
 
 # Set provider API keys in environment before importing litellm
@@ -38,6 +39,14 @@ class LLMService:
 
     def __init__(self):
         self.model_manager = get_model_manager()
+        # Log initial status
+        status = self.model_manager.get_status()
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[LLM SERVICE] Initialized. Available models: {status['available']}")
+        if status['rate_limited']:
+            for limited in status['rate_limited']:
+                logger.info(f"[LLM SERVICE] {limited['model']} is on cooldown for {limited['seconds_remaining']:.0f}s")
 
     def _get_model_with_fallback(self, preferred_model: Optional[str] = None) -> Optional[str]:
         """
@@ -53,11 +62,25 @@ class LLMService:
         if hasattr(config, 'use_local_llm') and config.use_local_llm:
             return f"openai/{config.local_model}"
 
-        # If a specific model is requested and it's a Gemini model, check priority
+        # Normalize the model name - strip "gemini/" prefix if present
+        normalized_model = None
         if preferred_model:
-            # For non-Gemini models, use as-is
-            if not preferred_model.startswith("gemini-"):
-                return preferred_model
+            normalized_model = preferred_model.replace("gemini/", "")
+
+        # If a specific model is requested, check if it's a Gemini model
+        if normalized_model and normalized_model.startswith("gemini-"):
+            # It's a specific Gemini model - check if it's available
+            status = self.model_manager.get_status()
+            if normalized_model in status['available']:
+                # Model is available, use it
+                return f"gemini/{normalized_model}"
+            else:
+                # Model is rate limited, fall through to use model manager
+                print(f"[MODEL FALLBACK] {normalized_model} is rate limited, using best available")
+
+        # For non-Gemini models, use as-is
+        if normalized_model and not normalized_model.startswith("gemini-"):
+            return normalized_model
 
         # Use the model manager to get best available Gemini model
         model = self.model_manager.get_available_model()
@@ -129,6 +152,16 @@ class LLMService:
             else:
                 # If a specific model was requested, raise the error
                 raise LLMServiceError(f"Model {model_name} is rate limited", e, retry_after=3600)
+        except ServiceUnavailableError as e:
+            # Model is overloaded/unavailable, treat like rate limit
+            self.model_manager.mark_rate_limited(model_name)
+
+            # Try with next available model
+            if model is None:
+                print(f"[RETRY] {model_name} is unavailable (503), trying next model...")
+                return await self.generate_text(prompt, None, max_tokens)
+            else:
+                raise LLMServiceError(f"Model {model_name} is currently unavailable", e, retry_after=300)
         except Exception as e:
             error_message = f"Error in generate_text: {e}"
             print(error_message)
@@ -196,6 +229,16 @@ class LLMService:
                 return await self.generate_with_images(prompt, images, None)
             else:
                 raise LLMServiceError(f"Model {model_name} is rate limited", e, retry_after=3600)
+        except ServiceUnavailableError as e:
+            # Model is overloaded/unavailable, treat like rate limit
+            self.model_manager.mark_rate_limited(model_name)
+
+            # Try with next available model
+            if model is None:
+                print(f"[RETRY] {model_name} is unavailable (503), trying next model...")
+                return await self.generate_with_images(prompt, images, None)
+            else:
+                raise LLMServiceError(f"Model {model_name} is currently unavailable", e, retry_after=300)
         except Exception as e:
             error_message = f"Error in generate_with_images: {e}"
             print(error_message)
@@ -292,6 +335,16 @@ class LLMService:
                 return await self.generate_with_tools(prompt, tools, None, tool_choice)
             else:
                 raise LLMServiceError(f"Model {model_name} is rate limited", e, retry_after=3600)
+        except ServiceUnavailableError as e:
+            # Model is overloaded/unavailable, treat like rate limit
+            self.model_manager.mark_rate_limited(model_name)
+
+            # Try with next available model
+            if model is None:
+                print(f"[RETRY] {model_name} is unavailable (503), trying next model...")
+                return await self.generate_with_tools(prompt, tools, None, tool_choice)
+            else:
+                raise LLMServiceError(f"Model {model_name} is currently unavailable", e, retry_after=300)
         except Exception as e:
             error_message = f"Error in generate_with_tools: {e}"
             print(error_message)
