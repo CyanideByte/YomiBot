@@ -225,8 +225,60 @@ UNIFIED_IDENTIFICATION_TOOL = {
     }
 }
 
+# Tool: Agent Request More Info (for agentic loop)
+AGENT_REQUEST_MORE_INFO_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "agent_request_more_info",
+        "description": "Request additional wiki pages or player data to answer the query more thoroughly. This tool initiates another iteration of information gathering. Use this when you need more information beyond what was already provided to give a comprehensive answer.\n\nIMPORTANT: Only use this tool if you genuinely need additional information that would significantly improve your answer. Don't use it just for minor details that aren't critical to answering the user's question.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "additional_wiki_pages": {
+                    "type": "array",
+                    "items": {"type": "string", "pattern": "^[A-Za-z0-9_()/]{1,60}$"},
+                    "description": "List of additional wiki page names to fetch (max 5). Use underscores (e.g., Karil's_armour). Empty array if no wiki pages needed.",
+                    "maxItems": 5
+                },
+                "additional_players": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of additional player names to fetch stats for (max 5). Empty array if no player data needed.",
+                    "maxItems": 5
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Brief explanation of why this additional information is needed to answer the user's query thoroughly."
+                }
+            },
+            "required": ["additional_wiki_pages", "additional_players", "reasoning"]
+        }
+    }
+}
 
-# All tools combined
+# Tool: Agent Complete (for agentic loop)
+AGENT_COMPLETE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "agent_complete",
+        "description": "Signal that you have gathered sufficient information and are ready to generate the final response to the user. Include a brief summary of what information was gathered.\n\nUse this tool when you have enough information to provide a comprehensive answer to the user's question. If you find yourself wanting more information but it's not strictly necessary, it's better to call this tool and provide a great answer with the information you already have.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "string",
+                    "description": "Brief summary of the information gathered (e.g., 'Fetched Vorkath stats and Karil's armour gear bonuses for ranging setup comparison')."
+                }
+            },
+            "required": ["summary"]
+        }
+    }
+}
+
+
+# All tools for standard workflow (!ask command)
+# Note: Agentic tools (AGENT_REQUEST_MORE_INFO_TOOL, AGENT_COMPLETE_TOOL) are NOT included here
+# as they are only used by the !agent command directly
 ALL_TOOLS = [
     IDENTIFY_WIKI_PAGES_TOOL,
     IDENTIFY_PLAYERS_TOOL,
@@ -241,6 +293,8 @@ ALL_TOOLS = [
 def get_tools_for_workflow(tools_needed: list[str] = None) -> list:
     """
     Get a subset of tools based on workflow needs.
+
+    Note: Agentic tools are not included here as they are only used by the !agent command.
 
     Args:
         tools_needed: List of tool names to include. If None, returns all tools.
@@ -258,6 +312,7 @@ def get_tools_for_workflow(tools_needed: list[str] = None) -> list:
         "identify_metrics": IDENTIFY_METRICS_TOOL,
         "suggest_followup_wiki_pages": SUGGEST_FOLLOWUP_WIKI_PAGES_TOOL,
         "generate_search_term": GENERATE_SEARCH_TERM_TOOL,
+        "unified_identification": UNIFIED_IDENTIFICATION_TOOL,
     }
 
     return [tool_map[name] for name in tools_needed if name in tool_map]

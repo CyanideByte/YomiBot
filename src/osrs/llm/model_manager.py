@@ -2,7 +2,7 @@
 Model priority manager with rate limit tracking.
 
 Handles fallback between models when rate limits are hit.
-Models are rate limited for 15 minutes after hitting a rate limit.
+Models are rate limited for 5 minutes after hitting a rate limit.
 Uses persistent file storage to track usage across bot restarts.
 """
 
@@ -57,7 +57,7 @@ class APIUsageTracker:
         self._save_usage_data()
 
     def _check_and_reset_expired_limits(self):
-        """Reset rate limits that have expired (15-minute cooldown)."""
+        """Reset rate limits that have expired (5-minute cooldown)."""
         now = datetime.now(timezone.utc)
 
         for model, usage in self.data.items():
@@ -149,17 +149,17 @@ class ModelPriorityManager:
     # All models stored WITH provider prefix for consistency
     # gemini-3-flash-preview removed: 20-40s per call vs 1-3s for 2.5 models
     MODEL_PRIORITY = [
-        "groq/moonshotai/kimi-k2-instruct-0905",
+        "gemini/gemini-2.5-flash",
+        "gemini/gemini-2.5-flash-lite",
         "groq/meta-llama/llama-4-scout-17b-16e-instruct",
         "groq/meta-llama/llama-4-maverick-17b-128e-instruct",
         "groq/openai/gpt-oss-120b",
+        "groq/moonshotai/kimi-k2-instruct-0905",
+        "openrouter/stepfun/step-3.5-flash:free"
+        "gemini/gemini-3-flash-preview",
         "groq/openai/gpt-oss-20b",
         "groq/llama-3.3-70b-versatile",
         "groq/qwen/qwen3-32b",
-        "gemini/gemini-2.5-flash",
-        "gemini/gemini-2.5-flash-lite",
-        "openrouter/stepfun/step-3.5-flash:free",
-        "gemini/gemini-3-flash-preview",
         "gemini/gemma-3-27b-it"
     ]
 
@@ -190,7 +190,7 @@ class ModelPriorityManager:
 
     def mark_rate_limited(self, model: str):
         """
-        Mark a model as rate limited for 15 minutes.
+        Mark a model as rate limited for 5 minutes.
         """
         with self.lock:
             # Ensure model exists in data before marking
@@ -203,8 +203,8 @@ class ModelPriorityManager:
                     "last_reset": datetime.now(timezone.utc).isoformat()
                 }
 
-            # Calculate cooldown time (15 minutes from now)
-            cooldown_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+            # Calculate cooldown time (5 minutes from now)
+            cooldown_until = datetime.now(timezone.utc) + timedelta(minutes=5)
 
             # Mark it as rate limited in the actual data
             usage = self.usage_tracker.data[model]
@@ -216,7 +216,7 @@ class ModelPriorityManager:
             # Format time for logging (HH:MM:SS)
             time_str = cooldown_until.strftime("%H:%M:%S")
             logger.warning(
-                f"[MODEL RATE LIMIT] {model} is rate limited for 15 minutes until {time_str} UTC"
+                f"[MODEL RATE LIMIT] {model} is rate limited for 5 minutes until {time_str} UTC"
             )
 
     def log_model_usage(self, model: str):

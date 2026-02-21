@@ -10,6 +10,7 @@ from osrs.wiseoldman import (
 )
 from osrs.llm.identification_optimized import unified_identification
 from osrs.llm.llm_service import LLMServiceError
+from osrs.llm.agentic_loop import run_agentic_loop
 
 def register_commands(bot):
     @bot.command(name='askyomi', aliases=['yomi', 'ask'])
@@ -204,4 +205,79 @@ def register_commands(bot):
     @bot.command(name='roll', help='Rolls a 6-sided die')
     async def roll(ctx):
         result = random.randint(1, 6)
-        await ctx.send(f"🎲 You rolled a **{result}**!", reference=ctx.message)
+        await ctx.send(f"🎲 {ctx.author.display_name} rolled a **{result}**!", reference=ctx.message)
+
+    @bot.command(name='agent', help='Agentic loop - iteratively gather information before responding')
+    async def agent(ctx, *, user_query: str = ""):
+        """
+        Agentic loop command that allows the LLM to iteratively gather information
+        by calling tools multiple times before generating a final response.
+
+        Shows detailed progress updates with iteration counters and what's being fetched.
+        """
+
+        ##############################################################################################################################
+        await ctx.send("Command currently disabled for testing. Please use !ask for now.", reference=ctx.message)
+        return
+        ##############################################################################################################################
+
+        # Get the user's Discord ID for context tracking
+        user_id = str(ctx.author.id)
+
+        # Initialize replied_message_content
+        replied_message_content = ""
+
+        # Check if the command is a reply to another message
+        if ctx.message.reference and ctx.message.reference.message_id:
+            try:
+                referenced_message = await ctx.fetch_message(ctx.message.reference.message_id)
+                if referenced_message and referenced_message.content:
+                    replied_message_content = f"User replying to message: \"{referenced_message.content}\"\n\nUser message: "
+            except Exception as e:
+                print(f"Error fetching replied message: {e}")
+
+        # If no query text, show error
+        if not user_query:
+            await ctx.send("Please provide a question for the agent. Example: !agent What's the best gear for Vorkath?")
+            return
+
+        # Combine replied message content with the user query
+        combined_query = replied_message_content + user_query
+
+        # Let the user know we're processing their request
+        processing_msg = await ctx.send(
+            "Initializing agentic loop - gathering information iteratively...",
+            reference=ctx.message
+        )
+
+        try:
+            # Get guild members
+            guild_members_data = get_guild_members_data()
+            guild_member_names = [member['player']['displayName'] for member in guild_members_data]
+
+            # Run the agentic loop
+            response = await run_agentic_loop(
+                user_query=combined_query,
+                guild_members=guild_member_names,
+                requester_name=ctx.author.display_name,
+                status_message=processing_msg,
+                max_iterations=3
+            )
+
+            # Send the final response
+            if len(response) > 1900:
+                # Use the send_long_response helper from query_processing
+                from osrs.llm.query_processing import send_long_response
+                await send_long_response(processing_msg, response)
+            else:
+                await processing_msg.edit(content=response)
+
+        except LLMServiceError as e:
+            # If there was an LLM service error, inform the user
+            if hasattr(e, 'retry_after') and e.retry_after:
+                await processing_msg.edit(content=f"Sorry, the AI service is currently rate limited. Please try again later.")
+            else:
+                await processing_msg.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+        except Exception as e:
+            # If there was any other error, edit the processing message with the error
+            await processing_msg.edit(content=f"Error processing your request: {str(e)}")
