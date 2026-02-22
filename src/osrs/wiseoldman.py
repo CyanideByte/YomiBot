@@ -18,7 +18,7 @@ SKILLS = [
     "attack", "strength", "defence", "ranged", "prayer", "magic", "runecrafting",
     "construction", "hitpoints", "agility", "herblore", "thieving", "crafting",
     "fletching", "slayer", "hunter", "mining", "smithing", "fishing", "cooking",
-    "firemaking", "woodcutting", "farming"
+    "firemaking", "woodcutting", "farming", "sailing"
 ]
 
 # Predefined metric names for OSRS
