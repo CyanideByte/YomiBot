@@ -202,7 +202,7 @@ def register_commands(bot):
             print(f"Error in image command: {e}")
             await processing_msg.edit(content=f"Sorry, something went wrong while generating the image: {str(e)}")
 
-    @bot.command(name='roll', help='Rolls a 6-sided die')
+    @bot.command(name='rolldice', help='Rolls a 6-sided die')
     async def roll(ctx):
         result = random.randint(1, 6)
         await ctx.send(f"🎲 {ctx.author.display_name} rolled a **{result}**!", reference=ctx.message)

@@ -11,11 +11,13 @@ from config.config import config
 from music import setup_music_commands
 from osrs.wiki import setup_osrs_commands
 from osrs.wiseoldman import setup_competition_commands
+from board import setup_board_commands, board_manager
 
 # Define the intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
+intents.members = True  # Required to access guild members and their nicknames
 
 def case_insensitive_prefix(bot, message):
     # Just return a single lowercase prefix
@@ -36,7 +38,7 @@ class CaseInsensitiveBot(commands.Bot):
         channel_name = message.channel.name.lower()
         invoked = (ctx.invoked_with or "").lower()
         
-        if invoked not in ("sotw", "botw", "askyomi", "ask", "yomi", "about", "player", "lookup", "roll") and not any(keyword in channel_name for keyword in self.allowed_channel_keywords):
+        if invoked not in ("sotw", "botw", "askyomi", "ask", "yomi", "about", "player", "lookup", "status", "roll", "rolldice", "board", "tiles", "teams", "team", "registerteam", "deleteteam", "reloadbingo", "complete", "reroll", "settile", "tileset", "setreroll", "setrerolls", "bingoroll", "changename", "updateroster") and not any(keyword in channel_name for keyword in self.allowed_channel_keywords):
             return None
             
         if (invoked == "askyomi" or invoked == "ask" or invoked == "yomi") and "yomi" not in channel_name:
@@ -68,6 +70,17 @@ class CaseInsensitiveBot(commands.Bot):
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.CommandNotFound):
             await ctx.send(f'Sorry, I did not recognize that command. Please check your input and try again.')
+        elif isinstance(error, commands.MissingRole):
+            await ctx.send(f"❌ You need the **{error.missing_role}** role to use this command.")
+        elif isinstance(error, commands.MissingAnyRole):
+            await ctx.send(f"❌ You need one of the required roles to use this command.")
+        elif isinstance(error, commands.CheckFailure):
+            await ctx.send("❌ You don't have permission to use this command.")
+        elif isinstance(error, commands.BadArgument):
+            # Provide helpful message for conversion errors
+            await ctx.send(f"❌ Invalid argument: {error}\n💡 Use `!teams` to see all team IDs and names.")
+        elif isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send(f"❌ Missing required argument: `{error.param.name}`\n💡 Use `!help {ctx.command.name}` for usage information.")
         else:
             print(f"An error occurred: {error}")
             await ctx.send("An error occurred while processing the command.")
@@ -108,8 +121,13 @@ async def about(ctx):
 setup_music_commands(bot)
 setup_osrs_commands(bot)
 setup_competition_commands(bot)
+setup_board_commands(bot)
 
 if __name__ == "__main__":
+    # Load board state at startup
+    if not board_manager.load_state():
+        print("Warning: Failed to load board state. Board commands may not work correctly.")
+    
     # Check for required environment variables
     if not config.gemini_api_key:
         print("Warning: GEMINI_API_KEY environment variable is not set. The !askyomi command will not work.")

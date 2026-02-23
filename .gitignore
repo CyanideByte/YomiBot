@@ -84,3 +84,6 @@ next-env.d.ts
 Thumbs.db
 
 nul
+board/board.png
+board/board_state.json
+board/board.py
