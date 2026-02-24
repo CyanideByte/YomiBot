@@ -46,6 +46,7 @@ class Team:
     rerolls: int = 1
     tile_completed: bool = True  # Whether current tile is completed (enables !roll)
     last_completed_position: int = 1  # Position before last roll (for rerolls), 1-based
+    last_roll: int = 0  # Last dice roll result (0 if no previous roll)
     
     @property
     def tile_index(self) -> int:
@@ -62,7 +63,8 @@ class Team:
             "position": self.position,
             "rerolls": self.rerolls,
             "tile_completed": self.tile_completed,
-            "last_completed_position": self.last_completed_position
+            "last_completed_position": self.last_completed_position,
+            "last_roll": self.last_roll
         }
     
     @classmethod
@@ -76,7 +78,8 @@ class Team:
             position=data.get("position", 1),  # 1-based, default to tile 1
             rerolls=data.get("rerolls", 1),
             tile_completed=data.get("tile_completed", True),
-            last_completed_position=data.get("last_completed_position", 1)
+            last_completed_position=data.get("last_completed_position", 1),
+            last_roll=data.get("last_roll", 0)
         )
 
 

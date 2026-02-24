@@ -38,7 +38,8 @@
       "discord_ids": ["ID1", "ID2"],
       "position": 0,
       "rerolls": 1,
-      "tile_completed": true
+      "tile_completed": true,
+      "last_roll": 0
     },
     {
       "team_id": 2,
@@ -48,7 +49,8 @@
       "discord_ids": ["ID3"],
       "position": 0,
       "rerolls": 1,
-      "tile_completed": true
+      "tile_completed": true,
+      "last_roll": 0
     },
     {
       "team_id": 3,
@@ -58,7 +60,8 @@
       "discord_ids": ["ID4"],
       "position": 0,
       "rerolls": 1,
-      "tile_completed": true
+      "tile_completed": true,
+      "last_roll": 0
     },
     {
       "team_id": 4,
@@ -68,7 +71,8 @@
       "discord_ids": ["ID5"],
       "position": 0,
       "rerolls": 1,
-      "tile_completed": true
+      "tile_completed": true,
+      "last_roll": 0
     },
     {
       "team_id": 5,
@@ -78,7 +82,8 @@
       "discord_ids": ["ID6"],
       "position": 0,
       "rerolls": 1,
-      "tile_completed": true
+      "tile_completed": true,
+      "last_roll": 0
     }
   ]
 }
