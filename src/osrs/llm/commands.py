@@ -2,6 +2,7 @@
 import aiohttp
 import os
 import random
+import time
 from urllib.parse import quote
 from osrs.llm.query_processing import process_unified_query, roast_player
 from osrs.wiseoldman import (
@@ -11,6 +12,10 @@ from osrs.wiseoldman import (
 from osrs.llm.identification_optimized import unified_identification
 from osrs.llm.llm_service import LLMServiceError
 from osrs.llm.agentic_loop import run_agentic_loop
+from config.config import config
+
+# Track when the free model hit daily limit (to skip it for an hour)
+_free_model_cooldown_until = 0
 
 def register_commands(bot):
     @bot.command(name='askyomi', aliases=['yomi', 'ask'])
@@ -164,40 +169,131 @@ def register_commands(bot):
             await ctx.send("Please provide a prompt for the image. Example: !image a majestic dragon")
             return
 
+        # Check for ImageRouter API key
+        if not config.imagerouter_api_key:
+            await ctx.send("Image generation is not configured. Please set IMAGEROUTER_API_KEY in .env")
+            return
+
         # Send initial processing message
         processing_msg = await ctx.send(
             "Generating image...",
             reference=ctx.message
         )
 
+        # Model priority: try free model first, fall back to flux
+        # Free model is skipped if it hit daily limit within the last hour
+        FREE_MODEL = "google/gemini-3-pro:free"
+        FALLBACK_MODEL = "black-forest-labs/FLUX-2-klein-9b"
+        
+        # Check if free model is on cooldown
+        current_time = time.time()
+        free_model_on_cooldown = current_time < _free_model_cooldown_until
+        
+        if free_model_on_cooldown:
+            remaining = int(_free_model_cooldown_until - current_time) // 60
+            print(f"Free model on cooldown for {remaining} more minutes, using fallback model")
+            models = [FALLBACK_MODEL]
+        else:
+            models = [FREE_MODEL, FALLBACK_MODEL]
+
+        async def try_generate_image(session, model):
+            """Attempt to generate an image with a specific model. Returns (success, image_url_or_error_data)."""
+            headers = {
+                "Authorization": f"Bearer {config.imagerouter_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "prompt": prompt,
+                "model": model,
+                "quality": "auto",
+                "size": "auto",
+                "response_format": "url",
+                "output_format": "webp",
+            }
+
+            print(f"Requesting image from ImageRouter with model {model} for prompt: {prompt}")
+
+            async with session.post(
+                "https://api.imagerouter.io/v1/openai/images/generations",
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=180)
+            ) as response:
+                data = await response.json()
+                
+                if response.status == 200 and "data" in data:
+                    return True, data["data"][0]["url"]
+                else:
+                    return False, data
+
+        def is_daily_limit_error(error_data):
+            """Check if the error is a daily limit reached error."""
+            try:
+                error_type = error_data.get("error", {}).get("type", "")
+                error_message = error_data.get("error", {}).get("message", "")
+                return error_type == "rate_limit_error" or "daily limit" in error_message.lower()
+            except (AttributeError, TypeError):
+                return False
+
         try:
-            # Generate random seed and encode prompt
-            seed = random.randint(1, 1000000)
-            encoded_prompt = quote(prompt)
-
-            # Construct the API URL (updated format) SEED PARAM BROKEN
-            url = f"https://pollinations.ai/p/{encoded_prompt}?enhance=true&nologo=true&model=flux"
-
-            print(f"Requesting image from: {url}")
-
-            # Make the request to get the image
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        await processing_msg.edit(content=f"Error: Failed to generate image (Status {response.status})")
-                        return
+                image_url = None
+                used_model = None
+                
+                for model in models:
+                    success, result = await try_generate_image(session, model)
+                    
+                    if success:
+                        image_url = result
+                        used_model = model
+                        print(f"Image generated successfully with {model}: {image_url}")
+                        break
+                    else:
+                        print(f"Model {model} failed: {result}")
+                        
+                        # If it's not a daily limit error, don't try other models
+                        if not is_daily_limit_error(result):
+                            error_msg = result.get("error", {}).get("message", "Unknown error")
+                            await processing_msg.edit(content=f"Error: Failed to generate image - {error_msg}")
+                            return
+                        # Otherwise, set cooldown for free model and continue to fallback
+                        if model == FREE_MODEL:
+                            global _free_model_cooldown_until
+                            _free_model_cooldown_until = time.time() + 3600  # 1 hour cooldown
+                            print(f"Daily limit reached for free model, setting 1-hour cooldown. Trying fallback model...")
 
-                    # Get the image data
-                    image_data = await response.read()
+                if not image_url:
+                    await processing_msg.edit(content="Error: All image generation models failed")
+                    return
+
+                # Download the generated image
+                async with session.get(image_url, timeout=aiohttp.ClientTimeout(total=60)) as img_response:
+                    if img_response.status != 200:
+                        await processing_msg.edit(content="Error: Failed to download generated image")
+                        return
+                    
+                    image_data = await img_response.read()
 
                     # Edit the message with the image
                     from discord import File
                     from io import BytesIO
 
+                    # Determine file extension from URL
+                    ext = image_url.split(".")[-1].split("?")[0]
+                    if ext not in {"jpg", "jpeg", "png", "webp"}:
+                        ext = "webp"
+
                     # Create a file-like object from the image data
-                    file = File(BytesIO(image_data), filename="generated_image.jpg")
+                    file = File(BytesIO(image_data), filename=f"generated_image.{ext}")
                     await processing_msg.edit(content=f"🎨 Generated image for: {prompt}", attachments=[file])
 
+        except aiohttp.ClientError as e:
+            print(f"HTTP error in image command: {e}")
+            await processing_msg.edit(content=f"Sorry, a network error occurred while generating the image: {str(e)}")
+        except (KeyError, IndexError) as e:
+            print(f"Unexpected response shape in image command: {e}")
+            await processing_msg.edit(content=f"Sorry, received an unexpected response from the image service")
         except Exception as e:
             print(f"Error in image command: {e}")
             await processing_msg.edit(content=f"Sorry, something went wrong while generating the image: {str(e)}")

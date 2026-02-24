@@ -47,6 +47,7 @@ class Config:
         self.anthropic_api_key = None
         self.groq_api_key = None
         self.openrouter_api_key = None
+        self.imagerouter_api_key = None
         self.brave_api_key = None
         self.wise_old_man_api_key = None
         self.wise_old_man_user_agent = None
@@ -87,6 +88,7 @@ class Config:
         self._load_anthropic_config()
         self._load_groq_config()
         self._load_openrouter_config()
+        self._load_imagerouter_config()
         self._load_brave_config()
         self._load_wise_old_man_config()
         self._load_proxies()
@@ -184,6 +186,13 @@ class Config:
         print(f"OPENROUTER_API_KEY from environment: {'Found' if self.openrouter_api_key else 'Not found'}")
         if not self.openrouter_api_key:
             print("Warning: OPENROUTER_API_KEY environment variable is not set")
+
+    def _load_imagerouter_config(self):
+        """Load ImageRouter API configuration from environment variables"""
+        self.imagerouter_api_key = os.getenv('IMAGEROUTER_API_KEY')
+        print(f"IMAGEROUTER_API_KEY from environment: {'Found' if self.imagerouter_api_key else 'Not found'}")
+        if not self.imagerouter_api_key:
+            print("Warning: IMAGEROUTER_API_KEY environment variable is not set")
 
     def _load_brave_config(self):
         """Load Brave Search API configuration from environment variables"""
