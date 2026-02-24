@@ -165,6 +165,8 @@ def register_commands(bot):
 
     @bot.command(name='image', help='Generates an image based on your prompt', aliases=['imagine'])
     async def generate_image(ctx, *, prompt: str = ""):
+        global _free_model_cooldown_until
+        
         if not prompt:
             await ctx.send("Please provide a prompt for the image. Example: !image a majestic dragon")
             return
@@ -259,7 +261,6 @@ def register_commands(bot):
                             return
                         # Otherwise, set cooldown for free model and continue to fallback
                         if model == FREE_MODEL:
-                            global _free_model_cooldown_until
                             _free_model_cooldown_until = time.time() + 3600  # 1 hour cooldown
                             print(f"Daily limit reached for free model, setting 1-hour cooldown. Trying fallback model...")
 
