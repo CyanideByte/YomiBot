@@ -594,11 +594,11 @@ def setup_board_commands(bot: commands.Bot):
         # Use a reroll point
         team.rerolls -= 1
         
-        # Roll the die (1-6) from the last completed position (1-based)
+        # Roll the die (1-4) from the last completed position (1-based)
         # Ensure the result is different from the last roll
-        result = random.randint(1, 6)
+        result = random.randint(1, 4)
         while result == team.last_roll:
-            result = random.randint(1, 6)
+            result = random.randint(1, 4)
         team.last_roll = result  # Store the new roll result
         base_position = team.last_completed_position
         new_position = min(base_position + result, len(board_manager.tiles))
@@ -789,8 +789,8 @@ def setup_board_commands(bot: commands.Bot):
         # Save the current position as last_completed before rolling
         team.last_completed_position = team.position
         
-        # Roll the die (1-6) - positions are 1-based
-        result = random.randint(1, 6)
+        # Roll the die (1-4) - positions are 1-based
+        result = random.randint(1, 4)
         team.last_roll = result  # Store the roll result for reroll prevention
         new_position = min(team.position + result, len(board_manager.tiles))
         
