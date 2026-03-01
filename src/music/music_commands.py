@@ -31,10 +31,54 @@ def setup_music_commands(bot):
 
             search = normalize_youtube_music_url(search)
 
+            # Check for direct .mp3 link from cyanide.wtf
+            cyanide_mp3_pattern = re.compile(r'https?://([a-zA-Z0-9.-]+\.)?cyanide\.wtf/.*\.mp3(?:\?.*)?$')
+
             youtube_url_pattern = re.compile(
                 r'(https?://)?(www\.)?(music\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/(playlist|watch)\?(.+)'
             )
             spotify_url_pattern = re.compile(r'(https?://)?(open\.)?spotify\.com/(track|playlist|album|artist)/.+')
+
+            # Check for other direct .mp3/.ogg/.wav URLs (not from supported sources)
+            direct_audio_pattern = re.compile(r'https?://.+\.(mp3|ogg|wav|flac|m4a)(?:\?.*)?$', re.IGNORECASE)
+
+            # Handle direct .mp3 files from cyanide.wtf
+            if cyanide_mp3_pattern.match(search):
+                # Check if user has Mod role
+                mod_role = discord.utils.get(ctx.author.roles, name='Mod')
+                if not mod_role:
+                    await ctx.send('Direct URL playback is not allowed')
+                    return
+
+                try:
+                    # Extract filename from URL for display
+                    filename = search.split('/')[-1].split('?')[0]
+                    display_name = filename.replace('.mp3', '').replace('_', ' ').replace('-', ' ')
+
+                    # Add to queue as a direct URL
+                    state['queue'].append({
+                        'url': search,
+                        'title': display_name,
+                        'duration': 0,  # Unknown duration for direct files
+                        'channel': 'cyanide.wtf',
+                        'is_direct_url': True  # Flag to indicate this is a direct URL
+                    })
+                    save_queue(ctx.guild.id, state['queue'])
+
+                    await ctx.send(f'**Added to queue:** {display_name}')
+
+                    if not ctx.voice_client.is_playing():
+                        await play_next(ctx)
+                    return
+                except Exception as e:
+                    await ctx.send(f'Error adding MP3: {str(e)}')
+                    traceback.print_exc()
+                    return
+
+            # Reject other direct audio URLs
+            if direct_audio_pattern.match(search):
+                await ctx.send('Direct URL playback is not allowed for this domain')
+                return
 
             ytdl_options = ytdl_format_options.copy()
             ytdl_options['noplaylist'] = False
