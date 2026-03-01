@@ -222,19 +222,35 @@ def register_commands(bot):
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=180)
             ) as response:
-                data = await response.json()
-                
+                # Try to parse as JSON first, fall back to text if that fails
+                try:
+                    data = await response.json()
+                except (aiohttp.ContentTypeError, Exception):
+                    # If response isn't JSON, read as text and create error structure
+                    error_text = await response.text()
+                    data = {
+                        "error": {
+                            "type": "api_error",
+                            "message": f"Non-JSON response (status {response.status}): {error_text[:500]}"
+                        }
+                    }
+
                 if response.status == 200 and "data" in data:
                     return True, data["data"][0]["url"]
                 else:
                     return False, data
 
-        def is_daily_limit_error(error_data):
-            """Check if the error is a daily limit reached error."""
+        def is_cooldown_error(error_data):
+            """Check if the error should trigger a cooldown (daily limit or temporarily disabled)."""
             try:
                 error_type = error_data.get("error", {}).get("type", "")
-                error_message = error_data.get("error", {}).get("message", "")
-                return error_type == "rate_limit_error" or "daily limit" in error_message.lower()
+                error_message = error_data.get("error", {}).get("message", "").lower()
+                return (
+                    error_type == "rate_limit_error" or
+                    "daily limit" in error_message or
+                    "temporarily disabled" in error_message or
+                    "abuse" in error_message
+                )
             except (AttributeError, TypeError):
                 return False
 
@@ -254,15 +270,15 @@ def register_commands(bot):
                     else:
                         print(f"Model {model} failed: {result}")
                         
-                        # If it's not a daily limit error, don't try other models
-                        if not is_daily_limit_error(result):
+                        # If it's not a cooldown error, don't try other models
+                        if not is_cooldown_error(result):
                             error_msg = result.get("error", {}).get("message", "Unknown error")
                             await processing_msg.edit(content=f"Error: Failed to generate image - {error_msg}")
                             return
                         # Otherwise, set cooldown for free model and continue to fallback
                         if model == FREE_MODEL:
                             _free_model_cooldown_until = time.time() + 3600  # 1 hour cooldown
-                            print(f"Daily limit reached for free model, setting 1-hour cooldown. Trying fallback model...")
+                            print(f"Cooldown error for free model, setting 1-hour cooldown. Trying fallback model...")
 
                 if not image_url:
                     await processing_msg.edit(content="Error: All image generation models failed")
