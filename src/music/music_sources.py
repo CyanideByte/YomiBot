@@ -17,7 +17,7 @@ PROXIES = config.proxies
 
 # YouTube DL configuration (without proxy, as we'll handle proxy rotation separately)
 ytdl_format_options = {
-    'format': 'bestaudio/best',
+    'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
     'restrictfilenames': True,
     'noplaylist': True,
@@ -36,7 +36,10 @@ ytdl_format_options = {
     'retries': 10,
     'fragment_retries': 10,
     'skip_unavailable_fragments': True,
-    'concurrent_fragment_downloads': 1
+    'concurrent_fragment_downloads': 1,
+    # JavaScript runtime for YouTube challenge solving
+    'js_runtimes': {'deno': {'path': '/home/cyanide/.deno/bin'}},
+    'remote_components': {'ejs:github'},
 }
 
 # Print a warning if cookies file doesn't exist
@@ -92,23 +95,39 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 if "HTTP Error 429: Too Many Requests" in str(e) and i < len(PROXIES) - 1:
                     print(f"Proxy {proxy} failed with 429 error, trying next proxy...")
                     continue
-                # If "Requested format not available", try without 'format' option
+                # If "Requested format not available", try with a more permissive format
                 elif "Requested format is not available" in str(e):
                     fallback_options = current_options.copy()
-                    if 'format' in fallback_options:
-                        del fallback_options['format']
+                    # Try a more permissive format that works better with videos that have limited format options
+                    fallback_options['format'] = 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best'
                     fallback_ytdl = youtube_dl.YoutubeDL(fallback_options)
                     try:
                         data = await loop.run_in_executor(None, lambda: fallback_ytdl.extract_info(url, download=not stream))
                         break  # Success, exit the loop
-                    except Exception as e2:
+                    except youtube_dl.utils.DownloadError as e2:
                         last_error = e2
                         if "HTTP Error 429: Too Many Requests" in str(e2) and i < len(PROXIES) - 1:
                             print(f"Proxy {proxy} failed with 429 error on fallback, trying next proxy...")
                             continue
                         else:
-                            # If it's not a 429 error, or we've tried all proxies, raise the error
-                            raise Exception(f"Could not find a suitable format. {str(e2)}")
+                            # If fallback also fails with format error, try without format restriction
+                            if "Requested format is not available" in str(e2) or "format" in str(e2).lower():
+                                no_format_options = current_options.copy()
+                                no_format_options.pop('format', None)
+                                no_format_ytdl = youtube_dl.YoutubeDL(no_format_options)
+                                try:
+                                    data = await loop.run_in_executor(None, lambda: no_format_ytdl.extract_info(url, download=not stream))
+                                    break  # Success, exit the loop
+                                except Exception as e3:
+                                    last_error = e3
+                                    if "HTTP Error 429: Too Many Requests" in str(e3) and i < len(PROXIES) - 1:
+                                        print(f"Proxy {proxy} failed with 429 error on no-format fallback, trying next proxy...")
+                                        continue
+                                    else:
+                                        raise Exception(f"Could not find a suitable format: {str(e3)}")
+                            else:
+                                # If it's a different error, raise it
+                                raise Exception(f"Fallback extraction failed: {str(e2)}")
                 else:
                     if 'Sign in to confirm your age' in str(e):
                         raise Exception("This video requires age confirmation and cannot be played.")
