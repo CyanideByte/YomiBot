@@ -27,7 +27,18 @@ def setup_music_commands(bot):
 
             channel = ctx.message.author.voice.channel
             if ctx.voice_client is None:
-                await channel.connect()
+                try:
+                    await channel.connect()
+                except discord.errors.ConnectionClosed as e:
+                    if e.code == 4017:
+                        await ctx.send('Voice connection failed (Discord encryption error). Please try again in a moment.')
+                        return
+                    else:
+                        await ctx.send(f'Voice connection failed (Error {e.code}). Please try again.')
+                        return
+                except Exception as e:
+                    await ctx.send(f'Failed to connect to voice channel: {str(e)}')
+                    return
 
             search = normalize_youtube_music_url(search)
 
@@ -296,7 +307,18 @@ def setup_music_commands(bot):
 
             channel = ctx.message.author.voice.channel
             if ctx.voice_client is None:
-                await channel.connect()
+                try:
+                    await channel.connect()
+                except discord.errors.ConnectionClosed as e:
+                    if e.code == 4017:
+                        await ctx.send('Voice connection failed (Discord encryption error). Please try again in a moment.')
+                        return
+                    else:
+                        await ctx.send(f'Voice connection failed (Error {e.code}). Please try again.')
+                        return
+                except Exception as e:
+                    await ctx.send(f'Failed to connect to voice channel: {str(e)}')
+                    return
 
             try:
                 results = spotify.search(q='artist:' + artist_name, type='artist')
@@ -445,7 +467,18 @@ def setup_music_commands(bot):
 
         channel = ctx.message.author.voice.channel
         if ctx.voice_client is None:
-            await channel.connect()
+            try:
+                await channel.connect()
+            except discord.errors.ConnectionClosed as e:
+                if e.code == 4017:
+                    await ctx.send('Voice connection failed (Discord encryption error). Please try again in a moment.')
+                    return
+                else:
+                    await ctx.send(f'Voice connection failed (Error {e.code}). Please try again.')
+                    return
+            except Exception as e:
+                await ctx.send(f'Failed to connect to voice channel: {str(e)}')
+                return
         else:
             if ctx.voice_client.channel != channel:
                 await ctx.voice_client.move_to(channel)

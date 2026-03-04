@@ -1,5 +1,5 @@
 # Discord bot framework
-discord.py>=2.0.0
+discord.py[voice]>=2.0.0
 
 # Media handling
 yt-dlp>=2023.3.4
