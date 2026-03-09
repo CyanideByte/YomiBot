@@ -24,6 +24,7 @@ from osrs.wiseoldman import (
 )
 from osrs.wiki import fetch_osrs_wiki_pages
 from osrs.llm.source_management import ensure_all_sources_included, clean_url_patterns
+from utils.rate_limit_helper import get_status_editor
 
 
 # Token counting
@@ -129,6 +130,9 @@ class AgenticLoop:
         self.status_message = status_message
         self.max_iterations = max_iterations
 
+        # Status editor for rate-limited message updates
+        self.editor = get_status_editor(cooldown_seconds=1.0)
+
         # State tracking
         self.current_iteration = 0
         self.queried_wiki_pages: Set[str] = set()
@@ -181,14 +185,14 @@ class AgenticLoop:
         except LLMServiceError as e:
             if self.status_message:
                 if hasattr(e, 'retry_after') and e.retry_after:
-                    await self.status_message.edit(content="Sorry, the AI service is currently rate limited. Please try again later.")
+                    await self.editor.update(self.status_message, "Sorry, the AI service is currently rate limited. Please try again later.", important=True)
                 else:
-                    await self.status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+                    await self.editor.update(self.status_message, "Sorry, the AI service is currently unavailable or overloaded. Please try again later.", important=True)
             raise
         except Exception as e:
             print(f"[AGENTIC LOOP] Error: {e}")
             if self.status_message:
-                await self.status_message.edit(content=f"Error processing your query: {str(e)}")
+                await self.editor.update(self.status_message, f"Error processing your query: {str(e)}", important=True)
             return f"Error processing your query: {str(e)}"
 
     async def _initial_identification(self):
@@ -196,7 +200,7 @@ class AgenticLoop:
         print("\n[STEP 1] Initial Identification")
 
         if self.status_message:
-            await self.status_message.edit(content="Analyzing query...")
+            await self.editor.update(self.status_message, "Analyzing query...", important=False)
 
         # Use unified_identification to get initial data
         result = await unified_identification(
@@ -239,8 +243,10 @@ class AgenticLoop:
 
             # Call LLM with agentic tools
             if self.status_message:
-                await self.status_message.edit(
-                    content=f"[Iteration {self.current_iteration}/{self.max_iterations}] Analyzing gathered information..."
+                await self.editor.update(
+                    self.status_message,
+                    f"[Iteration {self.current_iteration}/{self.max_iterations}] Analyzing gathered information...",
+                    important=False
                 )
 
             print(f"    Calling LLM with agentic tools...")
@@ -320,8 +326,10 @@ class AgenticLoop:
             status_parts.append(f"Fetching {len(new_players)} player(s)")
 
         if self.status_message:
-            await self.status_message.edit(
-                content=f"[Iteration {self.current_iteration + 1}/{self.max_iterations}] {', '.join(status_parts)}..."
+            await self.editor.update(
+                self.status_message,
+                f"[Iteration {self.current_iteration + 1}/{self.max_iterations}] {', '.join(status_parts)}...",
+                important=False
             )
 
         # Fetch new data
@@ -485,7 +493,7 @@ Remember: The goal is to provide a comprehensive answer to the user's question. 
         print("\n[STEP 3] Generating Final Response")
 
         if self.status_message:
-            await self.status_message.edit(content="Generating final response...")
+            await self.editor.update(self.status_message, "Generating final response...", important=False)
 
         # Format player data
         player_context = ""

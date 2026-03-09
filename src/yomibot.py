@@ -89,7 +89,11 @@ class CaseInsensitiveBot(commands.Bot):
 other_bot_commands = set()
 
 # Create the bot instance
-bot = CaseInsensitiveBot(command_prefix=case_insensitive_prefix, intents=intents, other_bot_commands=other_bot_commands)
+bot = CaseInsensitiveBot(
+    command_prefix=case_insensitive_prefix,
+    intents=intents,
+    other_bot_commands=other_bot_commands
+)
 
 # Set up event handlers
 @bot.event

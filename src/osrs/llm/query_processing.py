@@ -7,6 +7,7 @@ from osrs.llm.identification_optimized import identify_and_fetch_all_optimized
 from osrs.llm.source_management import ensure_all_sources_included, clean_url_patterns
 from osrs.wiseoldman import format_player_data, format_metrics
 from osrs.wiseoldman import get_guild_members_data
+from utils.rate_limit_helper import get_status_editor
 
 # Token counting
 try:
@@ -122,6 +123,9 @@ async def process_unified_query(
     print("[OPTIMIZED WORKFLOW] Using parallel tool calling")
     print("=" * 70)
 
+    # Get status editor for rate-limited message updates
+    editor = get_status_editor(cooldown_seconds=1.0)
+
     if not config.gemini_api_key:
         return "Sorry, the OSRS assistant is not available because no LLM is configured."
 
@@ -132,7 +136,7 @@ async def process_unified_query(
         # STEP 1: UNIFIED IDENTIFICATION (single LLM call with parallel tools)
         # ========================================================================
         if status_message:
-            await status_message.edit(content="Analyzing query...")
+            await editor.update(status_message, "Analyzing query...", important=False)
 
         print("\n[STEP 1/2] Unified Identification")
 
@@ -172,7 +176,7 @@ async def process_unified_query(
 
         if identified_players or is_all_members:
             if status_message:
-                await status_message.edit(content="Fetching player data...")
+                await editor.update(status_message, "Fetching player data...", important=False)
 
             # Import here to avoid circular dependency
             from osrs.wiseoldman import fetch_player_details
@@ -182,7 +186,7 @@ async def process_unified_query(
             if is_all_members:
                 # All members case - fetch metrics instead
                 if status_message:
-                    await status_message.edit(content="Fetching clan metrics...")
+                    await editor.update(status_message, "Fetching clan metrics...", important=False)
 
                 print("  Fetching metrics for all clan members...")
                 metrics_data = {}
@@ -211,7 +215,7 @@ async def process_unified_query(
                 """
 
                 if status_message:
-                    await status_message.edit(content="Generating response...")
+                    await editor.update(status_message, "Generating response...", important=False)
 
                 print("[API CALL: LITELLM] metrics data generation")
                 prompt_tokens = count_tokens(prompt)
@@ -243,10 +247,10 @@ async def process_unified_query(
                 response = re.sub(r'\n\nSources:\s*$', '', response.strip())
 
                 if status_message and len(response) > 1900:
-                    await send_long_response(status_message, response)
+                    await send_long_response(status_message, response, editor)
                 else:
                     if status_message:
-                        await status_message.edit(content=response)
+                        await editor.update(status_message, response, important=True)
 
                 return response
 
@@ -293,7 +297,7 @@ async def process_unified_query(
 
         if wiki_pages and not player_data_list:
             if status_message:
-                await status_message.edit(content="Fetching wiki data...")
+                await editor.update(status_message, "Fetching wiki data...", important=False)
 
             print(f"  Fetching {len(wiki_pages)} wiki pages: {wiki_pages}")
 
@@ -325,7 +329,7 @@ async def process_unified_query(
             # Web search for additional queries
             if search_queries:
                 if status_message:
-                    await status_message.edit(content="Searching the web...")
+                    await editor.update(status_message, "Searching the web...", important=False)
 
                 print(f"  Performing {len(search_queries)} web searches...")
                 for query in search_queries:
@@ -437,7 +441,7 @@ async def process_unified_query(
 
         # Generate response
         if status_message:
-            await status_message.edit(content="Generating response...")
+            await editor.update(status_message, "Generating response...", important=False)
 
         print("[API CALL: LITELLM] final response generation")
         generation_start = time.perf_counter()
@@ -543,10 +547,10 @@ async def process_unified_query(
 
         # Send response
         if status_message and len(response) > 1900:
-            await send_long_response(status_message, response)
+            await send_long_response(status_message, response, editor)
         else:
             if status_message:
-                await status_message.edit(content=response)
+                await editor.update(status_message, response, important=True)
 
         return response
 
@@ -554,14 +558,14 @@ async def process_unified_query(
         print(f"[OPTIMIZED WORKFLOW] LLM service error: {e}")
         if status_message:
             if hasattr(e, 'retry_after') and e.retry_after:
-                await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again later.")
+                await editor.update(status_message, f"Sorry, the AI service is currently rate limited. Please try again later.", important=True)
             else:
-                await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+                await editor.update(status_message, "Sorry, the AI service is currently unavailable or overloaded. Please try again later.", important=True)
         raise
     except Exception as e:
         print(f"[OPTIMIZED WORKFLOW] Error: {e}")
         if status_message:
-            await status_message.edit(content=f"Error processing your query: {str(e)}")
+            await editor.update(status_message, f"Error processing your query: {str(e)}", important=True)
         return f"Error processing your query: {str(e)}"
 
 
@@ -569,17 +573,20 @@ async def process_unified_query(
 # PLAYER ROASTING
 # =============================================================================
 
-async def roast_player(player_data, status_message=None):
+async def roast_player(player_data, status_message=None, editor=None):
     """
     Generate a humorous roast for a player based on their stats
 
     Args:
         player_data: The player data to roast
         status_message: Optional status message to update
+        editor: Optional StatusMessageEditor instance for rate-limited edits
 
     Returns:
         Formatted roast text or None if an error occurred
     """
+    if editor is None:
+        editor = get_status_editor(cooldown_seconds=1.0)
     if not config.gemini_api_key:
         return "Sorry, the player roast feature is not available because the Gemini API key is not set."
 
@@ -637,9 +644,9 @@ async def roast_player(player_data, status_message=None):
             # Update status message if available
             if status_message:
                 if hasattr(e, 'retry_after') and e.retry_after:
-                    await status_message.edit(content=f"Sorry, the AI service is currently rate limited. Please try again later.")
+                    await editor.update(status_message, f"Sorry, the AI service is currently rate limited. Please try again later.", important=True)
                 else:
-                    await status_message.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+                    await editor.update(status_message, "Sorry, the AI service is currently unavailable or overloaded. Please try again later.", important=True)
             # Re-raise to be handled by the command - this will exit the function immediately
             raise
 
@@ -657,10 +664,16 @@ async def roast_player(player_data, status_message=None):
 # HELPER FUNCTIONS
 # =============================================================================
 
-async def send_long_response(status_message, response, chunk_size=1900):
+async def send_long_response(status_message, response, editor=None, chunk_size=1900):
     """
     Sends a long response in Discord-friendly chunks, splitting at newlines if possible.
     The first chunk edits the status message, subsequent chunks are sent as new messages.
+
+    Args:
+        status_message: The Discord status message to edit
+        response: The long response text to send
+        editor: Optional StatusMessageEditor instance for rate-limited edits
+        chunk_size: Maximum size of each chunk
     """
     idx = 0
     length = len(response)
@@ -684,7 +697,10 @@ async def send_long_response(status_message, response, chunk_size=1900):
         if pos < length:
             chunk = chunk.rstrip('\n') + "\n\n(Continued in next message)"
         if idx == 0:
-            await status_message.edit(content=chunk)
+            if editor:
+                await editor.update(status_message, chunk, important=True)
+            else:
+                await status_message.edit(content=chunk)
         else:
             await status_message.channel.send(chunk)
         idx += 1

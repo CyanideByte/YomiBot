@@ -38,7 +38,7 @@ ACTIVITY_METRICS = [
 
 BOSS_METRICS = [
     'abyssal_sire', 'alchemical_hydra', 'amoxliatl', 'araxxor', 'artio', 'barrows_chests',
-    'bryophyta', 'callisto', 'calvarion', 'cerberus', 'chambers_of_xeric',
+    'brutus', 'bryophyta', 'callisto', 'calvarion', 'cerberus', 'chambers_of_xeric',
     'chambers_of_xeric_challenge_mode', 'chaos_elemental', 'chaos_fanatic', 'commander_zilyana',
     'corporeal_beast', 'crazy_archaeologist', 'dagannoth_prime', 'dagannoth_rex',
     'dagannoth_supreme', 'deranged_archaeologist', 'duke_sucellus', 'general_graardor',

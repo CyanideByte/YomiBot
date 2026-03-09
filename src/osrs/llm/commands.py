@@ -13,6 +13,7 @@ from osrs.llm.identification_optimized import unified_identification
 from osrs.llm.llm_service import LLMServiceError
 from osrs.llm.agentic_loop import run_agentic_loop
 from config.config import config
+from utils.rate_limit_helper import get_status_editor
 
 # Track when the free model hit daily limit (to skip it for an hour)
 _free_model_cooldown_until = 0
@@ -72,18 +73,20 @@ def register_commands(bot):
                 requester_name=ctx.author.display_name,
                 status_message=processing_msg
             )
-            
+
             # Final response will be handled by process_unified_query
         except LLMServiceError as e:
             # If there was an LLM service error, inform the user that the service is unavailable
+            editor = get_status_editor(cooldown_seconds=1.0)
             if hasattr(e, 'retry_after') and e.retry_after:
-                await processing_msg.edit(content=f"Sorry, the AI service is currently rate limited. Please try again later.")
+                await editor.update(processing_msg, f"Sorry, the AI service is currently rate limited. Please try again later.", important=True)
             else:
-                await processing_msg.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+                await editor.update(processing_msg, "Sorry, the AI service is currently unavailable or overloaded. Please try again later.", important=True)
             return
         except Exception as e:
             # If there was any other error, edit the processing message with the error
-            await processing_msg.edit(content=f"Error processing your request: {str(e)}")
+            editor = get_status_editor(cooldown_seconds=1.0)
+            await editor.update(processing_msg, f"Error processing your request: {str(e)}", important=True)
 
     @bot.command(name='roast', help='Roasts a player based on their OSRS stats.')
     async def roast(ctx, *, user_query=None):
@@ -134,34 +137,35 @@ def register_commands(bot):
                         # No players found, try the user query directly
                         target_player = user_query
 
-            await processing_msg.edit(content=f"Preparing a savage roast for {target_player}...")
-            
+            editor = get_status_editor(cooldown_seconds=1.0)
+            await editor.update(processing_msg, f"Preparing a savage roast for {target_player}...", important=False)
+
             # Fetch player details, passing guild members data for efficient caching
             async with aiohttp.ClientSession() as session:
                 player_data = await fetch_player_details_by_username(target_player, guild_members_data, session)
-            
+
             if not player_data:
-                await processing_msg.edit(content=f"Couldn't find any stats for '{target_player}'. They're so irrelevant they don't even show up on WiseOldMan.")
+                await editor.update(processing_msg, f"Couldn't find any stats for '{target_player}'. They're so irrelevant they don't even show up on WiseOldMan.", important=True)
                 return
-                
+
             # Generate the roast
-            roast_response = await roast_player(player_data, status_message=processing_msg)
+            roast_response = await roast_player(player_data, status_message=processing_msg, editor=editor)
             if not roast_response:
-                await processing_msg.edit(content=f"Their stats are so bad I'm actually speechless. I can't even roast '{target_player}' - they've roasted themselves just by existing.")
+                await editor.update(processing_msg, f"Their stats are so bad I'm actually speechless. I can't even roast '{target_player}' - they've roasted themselves just by existing.", important=True)
                 return
-                
-            await processing_msg.edit(content=roast_response)
-            
+
+            await editor.update(processing_msg, roast_response, important=True)
+
         except LLMServiceError as e:
             # If there was an LLM service error, inform the user that the service is unavailable
             if hasattr(e, 'retry_after') and e.retry_after:
-                await processing_msg.edit(content=f"Sorry, the AI service is currently rate limited. Please try again later.")
+                await editor.update(processing_msg, f"Sorry, the AI service is currently rate limited. Please try again later.", important=True)
             else:
-                await processing_msg.edit(content="Sorry, the AI service is currently unavailable or overloaded. Please try again later.")
+                await editor.update(processing_msg, "Sorry, the AI service is currently unavailable or overloaded. Please try again later.", important=True)
             return
         except Exception as e:
             print(f"Error in roast command: {e}")
-            await processing_msg.edit(content=f"Something went wrong while trying to roast this noob. They're probably not worth roasting anyway.")
+            await editor.update(processing_msg, f"Something went wrong while trying to roast this noob. They're probably not worth roasting anyway.", important=True)
 
     @bot.command(name='image', help='Generates an image based on your prompt', aliases=['imagine'])
     async def generate_image(ctx, *, prompt: str = ""):

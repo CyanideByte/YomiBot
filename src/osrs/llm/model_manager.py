@@ -149,6 +149,7 @@ class ModelPriorityManager:
     # All models stored WITH provider prefix for consistency
     # gemini-3-flash-preview removed: 20-40s per call vs 1-3s for 2.5 models
     MODEL_PRIORITY = [
+        "gemini/gemini-3.1-flash-lite-preview",
         "gemini/gemini-2.5-flash",
         "gemini/gemini-2.5-flash-lite",
         "groq/meta-llama/llama-4-scout-17b-16e-instruct",
