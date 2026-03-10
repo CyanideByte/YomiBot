@@ -78,7 +78,7 @@ def setup_music_commands(bot):
 
                     await ctx.send(f'**Added to queue:** {display_name}')
 
-                    if not ctx.voice_client.is_playing():
+                    if ctx.voice_client and not ctx.voice_client.is_playing():
                         await play_next(ctx)
                     return
                 except Exception as e:
@@ -115,7 +115,7 @@ def setup_music_commands(bot):
                         return
                     for entry in info['entries']:
                         state['queue'].append({'url': entry['webpage_url'], 'title': entry['title'], 'duration': entry.get('duration', 0), 'channel': entry.get('uploader', 'Unknown')})
-                        if first_track and (not ctx.voice_client.is_playing()):
+                        if first_track and ctx.voice_client and not ctx.voice_client.is_playing():
                             await play_next(ctx)
                             first_track = False
                     save_queue(ctx.guild.id, state['queue'])
@@ -130,7 +130,7 @@ def setup_music_commands(bot):
                     save_queue(ctx.guild.id, state['queue'])
                     duration = player_data.duration if player_data.duration is not None else 0
                     await ctx.send(f'**Added to queue:** {player_data.title} [{duration//60}:{duration%60:02d}]')
-                    if not ctx.voice_client.is_playing():
+                    if ctx.voice_client and not ctx.voice_client.is_playing():
                         await play_next(ctx)
             elif spotify_url_pattern.match(search) and spotify:
                 match = spotify_url_pattern.match(search)
@@ -169,7 +169,7 @@ def setup_music_commands(bot):
                     save_queue(ctx.guild.id, state['queue'])
                     duration = player_data.duration if player_data.duration is not None else 0
                     await ctx.send(f'**Added to queue:** {player_data.title} [{duration//60}:{duration%60:02d}]')
-                    if not ctx.voice_client.is_playing():
+                    if ctx.voice_client and not ctx.voice_client.is_playing():
                         await play_next(ctx)
                 else:
                     try:
@@ -262,7 +262,7 @@ def setup_music_commands(bot):
                             state['queue'].append({'url': url, 'title': track['name'], 'duration': duration_secs, 'channel': artist_name})
                             track_count += 1
 
-                            if first_track and not ctx.voice_client.is_playing():
+                            if first_track and ctx.voice_client and not ctx.voice_client.is_playing():
                                 await play_next(ctx)
                                 first_track = False
                     save_queue(ctx.guild.id, state['queue'])
@@ -284,7 +284,7 @@ def setup_music_commands(bot):
                 save_queue(ctx.guild.id, state['queue'])
                 duration = player_data.duration if player_data.duration is not None else 0
                 await ctx.send(f'**Added to queue:** {player_data.title} [{duration//60}:{duration%60:02d}]')
-                if not ctx.voice_client.is_playing():
+                if ctx.voice_client and not ctx.voice_client.is_playing():
                     await play_next(ctx)
 
         except Exception as e:
@@ -369,7 +369,7 @@ def setup_music_commands(bot):
                     state['queue'].append({'url': url, 'title': title, 'duration': duration_secs, 'channel': artist_name})
                     track_count += 1
 
-                    if first_track and not ctx.voice_client.is_playing():
+                    if first_track and ctx.voice_client and not ctx.voice_client.is_playing():
                         await play_next(ctx)
                         first_track = False
 
@@ -444,7 +444,7 @@ def setup_music_commands(bot):
             ctx.voice_client.stop()
             print("Skipping the current song...")
             await ctx.send("Skipping the current song...")
-            if not ctx.voice_client.is_playing():
+            if ctx.voice_client and not ctx.voice_client.is_playing():
                 await play_next(ctx)
         else:
             await ctx.send("There is no song playing right now.")
